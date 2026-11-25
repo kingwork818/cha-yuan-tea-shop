@@ -2146,8 +2146,16 @@ app.get('/sitemap.xml', (req, res) => {
 
   let products = [];
   try {
-    products = dbAll('SELECT slug, updated_at FROM products WHERE is_active = 1 ORDER BY id');
-  } catch {
+    /*
+     * Only columns that exist: the first version of this selected `updated_at`,
+     * which products does not have, so the query threw and the catch below turned
+     * a broken sitemap into a plausible-looking one with no products in it. The
+     * logging is the point — a silent catch here is indistinguishable from a shop
+     * with nothing to sell.
+     */
+    products = dbAll('SELECT slug FROM products WHERE is_active = 1 ORDER BY sort_order, id');
+  } catch (err) {
+    console.error(`[sitemap] product query failed: ${err.message}`);
     products = [];
   }
   for (const product of products) {

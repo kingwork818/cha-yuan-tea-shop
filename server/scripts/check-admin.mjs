@@ -347,6 +347,21 @@ for (const p of ['/', '/shop', '/checkout', '/order', '/robots.txt', '/sitemap.x
   check(`storefront ${p} answers 200`, res.status === 200, String(res.status));
 }
 
+/* 9. The sitemap lists the catalogue, not just the fixed pages.
+ *
+ * Worth its own assertion: the first version of the sitemap silently listed
+ * eleven pages and no products, because one column in its query did not exist and
+ * the error was swallowed. A sitemap is exactly the kind of file nobody looks at
+ * until a search engine ignores the site. */
+const sitemap = await (await page('/sitemap.xml')).text();
+const productUrls = (sitemap.match(/<loc>[^<]*\/tea\//g) || []).length;
+check('the sitemap lists product pages', productUrls > 100, `${productUrls} product URLs`);
+check('the sitemap names the public domain', sitemap.includes('http'), sitemap.slice(0, 120));
+
+const robots = await (await page('/robots.txt')).text();
+check('robots.txt excludes the back office', /Disallow: \/admin/.test(robots));
+check('robots.txt points at the sitemap', /Sitemap: https?:\/\//.test(robots));
+
 console.log(`\n  ${passed} passed, ${failed} failed\n`);
 stop();
 process.exit(failed ? 1 : 0);
