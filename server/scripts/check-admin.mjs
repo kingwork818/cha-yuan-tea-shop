@@ -347,7 +347,90 @@ for (const p of ['/', '/shop', '/checkout', '/order', '/robots.txt', '/sitemap.x
   check(`storefront ${p} answers 200`, res.status === 200, String(res.status));
 }
 
-/* 9. The sitemap lists the catalogue, not just the fixed pages.
+/* 9. Archiving test orders: hidden from the working views, still there. */
+{
+  /*
+   * Fresh sign-ins: the revoke-all check above deliberately ends every session,
+   * including the owner's, so anything after it has to authenticate again.
+   */
+  const owner2 = await signIn(OWNER);
+  const reviewer3 = await signIn(REVIEWER);
+  check('sign-in works again after a revoke', owner2.status === 302 && reviewer3.status === 302);
+
+  const cleanupPage = await page('/admin/orders/cleanup', owner2.cookie);
+  const cleanupHtml = await cleanupPage.text();
+  check('owner can open the test-order page', cleanupPage.status === 200, String(cleanupPage.status));
+  check('the archive form is present', /action="\/admin\/orders\/archive"/.test(cleanupHtml));
+
+  const reviewerCleanup = await page('/admin/orders/cleanup', reviewer3.cookie);
+  check('reviewer can see the test-order page', reviewerCleanup.status === 200, String(reviewerCleanup.status));
+
+  const reviewerArchive = await post('/admin/orders/archive', reviewer3.cookie, { ids: '1' });
+  check('reviewer cannot archive', reviewerArchive.status === 403, String(reviewerArchive.status));
+
+  const reviewerPurge = await post('/admin/orders/purge', reviewer3.cookie, { confirm: 'DELETE' });
+  check('reviewer cannot purge', reviewerPurge.status === 403, String(reviewerPurge.status));
+
+  /* A purge without the typed word must do nothing at all. */
+  const noConfirm = await post('/admin/orders/purge', owner2.cookie, {});
+  check('purge without typing DELETE is refused', noConfirm.status === 302 && /purge-refused/.test(noConfirm.headers.get('location') || ''),
+    noConfirm.headers.get('location') || '');
+
+  const ordersList = await (await page('/admin/orders', owner2.cookie)).text();
+  check('the orders list offers an archived filter', /Show archived too/.test(ordersList));
+
+  /*
+   * Pick the row for the order this test placed. The id is in the checkbox of that
+   * row, so the row is found by its order number first — archiving a different
+   * order and then asserting the first one vanished would pass for the wrong
+   * reason.
+   */
+  const rowId = (orderNumber) => {
+    for (const row of cleanupHtml.split('<tr').slice(1)) {
+      if (row.includes(orderNumber)) return row.match(/name="ids" value="(\d+)"/)?.[1] || null;
+    }
+    return null;
+  };
+  const targetId = placed ? rowId(placed) : null;
+
+  if (placed && targetId) {
+    const archiveRes = await post('/admin/orders/archive', owner2.cookie, { ids: targetId });
+    const location = archiveRes.headers.get('location') || '';
+    check('owner can archive a test order', archiveRes.status === 302 && location.includes('result=archived'),
+      `${archiveRes.status} ${location}`);
+
+    /*
+     * "Gone from the list" is asserted on the row's link, not on the number
+     * appearing anywhere in the page: the search term is echoed back in the input
+     * and in the CSV export link, so a plain substring test passes for the wrong
+     * reason.
+     */
+    const rowLink = (html, number) => new RegExp(`href="/admin/orders/${number}"`).test(html);
+
+    const afterArchive = await (await page(`/admin/orders?q=${encodeURIComponent(placed)}`, owner2.cookie)).text();
+    check('an archived order leaves the default list', !rowLink(afterArchive, placed));
+
+    /* With something archived, the permanent-deletion form appears — and it must
+     * demand the typed word rather than a second button press. */
+    const cleanupAfter = await (await page('/admin/orders/cleanup', owner2.cookie)).text();
+    check('the purge form needs a typed confirmation', /name="confirm"/.test(cleanupAfter) && /Type DELETE/.test(cleanupAfter));
+
+    const onlyArchived = await (await page('/admin/orders?archived=only', owner2.cookie)).text();
+    check('an archived order is still findable under the archived filter', rowLink(onlyArchived, placed));
+
+    const activity = await (await page('/admin/activity', owner2.cookie)).text();
+    check('archiving is recorded in the activity log', /orders\.archive/.test(activity));
+
+    const restore = await post('/admin/orders/unarchive', owner2.cookie, { ids: targetId });
+    check('owner can restore it', restore.status === 302, String(restore.status));
+    const afterRestore = await (await page(`/admin/orders?q=${encodeURIComponent(placed)}`, owner2.cookie)).text();
+    check('a restored order is back in the list', rowLink(afterRestore, placed));
+  } else {
+    check('there is a test order to archive', false, `placed=${placed} target=${targetId}`);
+  }
+}
+
+/* 10. The sitemap lists the catalogue, not just the fixed pages.
  *
  * Worth its own assertion: the first version of the sitemap silently listed
  * eleven pages and no products, because one column in its query did not exist and

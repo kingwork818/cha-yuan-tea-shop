@@ -24,6 +24,7 @@ const password = process.env.ADMIN_PASSWORD || config.admin.password;
 const pages = [
   ['dashboard', '/admin'],
   ['orders', '/admin/orders'],
+  ['cleanup', '/admin/orders/cleanup'],
   ['catalogue', '/admin/products'],
   ['callbacks', '/admin/webhooks'],
   ['emails', '/admin/emails'],

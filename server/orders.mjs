@@ -221,9 +221,18 @@ export function getOrderByReference(reference) {
   return attempt ? getOrderById(attempt.order_id) : null;
 }
 
-export function listOrders({ limit = 100, offset = 0, status = '', search = '', from = '', to = '' } = {}) {
+export function listOrders({ limit = 100, offset = 0, status = '', search = '', from = '', to = '', archived = 'exclude' } = {}) {
   const where = [];
   const params = [];
+  /*
+   * Archived orders are out of the way by default — that is the point of
+   * archiving — but they are never invisible: `archived=only` lists exactly them,
+   * and `archived=include` shows both. A filter that quietly hides rows is the
+   * difference between tidying a shop and misleading a reviewer.
+   */
+  if (archived === 'only') where.push('archived_at IS NOT NULL');
+  else if (archived !== 'include') where.push('archived_at IS NULL');
+
   if (status) {
     where.push('status = ?');
     params.push(status);
@@ -262,15 +271,135 @@ export function listOrders({ limit = 100, offset = 0, status = '', search = '', 
 
 export function orderStats() {
   const paidStates = `('paid','processing','shipped','delivered')`;
+  // Archived orders are excluded from every figure: a demonstration order must
+  // not inflate revenue on the dashboard an acquirer is looking at.
+  const live = 'archived_at IS NULL';
   return {
-    total: get('SELECT COUNT(*) AS n FROM orders')?.n ?? 0,
-    awaiting: get(`SELECT COUNT(*) AS n FROM orders WHERE status IN ('awaiting_payment','pending')`)?.n ?? 0,
-    paid: get(`SELECT COUNT(*) AS n FROM orders WHERE status IN ${paidStates}`)?.n ?? 0,
-    refunded: get(`SELECT COUNT(*) AS n FROM orders WHERE status = 'refunded'`)?.n ?? 0,
-    revenue: get(`SELECT COALESCE(SUM(total_cents),0) AS v FROM orders WHERE status IN ${paidStates}`)?.v ?? 0,
-    units: get(`SELECT COALESCE(SUM(oi.quantity),0) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.status IN ${paidStates}`)?.v ?? 0,
+    total: get(`SELECT COUNT(*) AS n FROM orders WHERE ${live}`)?.n ?? 0,
+    awaiting: get(`SELECT COUNT(*) AS n FROM orders WHERE ${live} AND status IN ('awaiting_payment','pending')`)?.n ?? 0,
+    paid: get(`SELECT COUNT(*) AS n FROM orders WHERE ${live} AND status IN ${paidStates}`)?.n ?? 0,
+    refunded: get(`SELECT COUNT(*) AS n FROM orders WHERE ${live} AND status = 'refunded'`)?.n ?? 0,
+    archived: get('SELECT COUNT(*) AS n FROM orders WHERE archived_at IS NOT NULL')?.n ?? 0,
+    revenue: get(`SELECT COALESCE(SUM(total_cents),0) AS v FROM orders WHERE ${live} AND status IN ${paidStates}`)?.v ?? 0,
+    units: get(`SELECT COALESCE(SUM(oi.quantity),0) AS v FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.archived_at IS NULL AND o.status IN ${paidStates}`)?.v ?? 0,
     pendingWebhooks: get('SELECT COUNT(*) AS n FROM webhook_events WHERE processed = 0')?.n ?? 0,
   };
+}
+
+/* ------------------------------------------------------- archive and purge */
+
+/**
+ * Orders that look like they were placed by a test rather than a customer.
+ *
+ * A suggestion list, never an automatic decision: the back office shows these
+ * with the reason each one matched, and a person chooses. Guessing wrong in the
+ * other direction — archiving a real customer's order — would be far worse than
+ * leaving a test order in the list, so nothing here deletes or hides anything on
+ * its own.
+ *
+ * The signature is deliberately narrow: a reserved domain in the address, or a
+ * name that only the test fixtures use. A real order matching one of these by
+ * accident is possible, which is exactly why the reason is shown next to it.
+ */
+const TEST_SIGNATURES = [
+  { why: 'reserved .test address', sql: "customer_email LIKE '%.test'" },
+  { why: 'example.com address', sql: "customer_email LIKE '%@example.com'" },
+  { why: 'smoke-test name', sql: "customer_name LIKE 'Smoke Tester%'" },
+  { why: 'demo fixture name', sql: "customer_name LIKE 'Review %'" },
+  { why: 'marked as a test in the note', sql: "(customer_note LIKE '%smoke test%' OR customer_note LIKE '%access check%')" },
+];
+
+export function testOrderCandidates(limit = 500) {
+  const condition = TEST_SIGNATURES.map((s) => s.sql).join(' OR ');
+  const rows = all(
+    `SELECT * FROM orders WHERE archived_at IS NULL AND (${condition}) ORDER BY id DESC LIMIT ?`,
+    Math.min(2000, Number(limit) || 500),
+  );
+  return rows.map((row) => ({
+    ...row,
+    reasons: TEST_SIGNATURES
+      .filter((s) => {
+        const probe = get(`SELECT 1 AS hit FROM orders WHERE id = ? AND (${s.sql})`, row.id);
+        return Boolean(probe);
+      })
+      .map((s) => s.why),
+  }));
+}
+
+/**
+ * Archive orders.
+ *
+ * Refuses anything carrying a gateway payment id while the shop is taking real
+ * payments: that is a financial record with money behind it, and hiding it from
+ * the reconciliation is not a tidy-up. Those have to be refunded or cancelled
+ * through the normal flow instead.
+ */
+export function archiveOrders(ids, { allowRealPayments = false } = {}) {
+  return transaction(() => {
+    const archived = [];
+    const refused = [];
+    for (const rawId of ids) {
+      const id = Number(rawId);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const order = get('SELECT * FROM orders WHERE id = ?', id);
+      if (!order) continue;
+      if (order.archived_at) {
+        refused.push({ order_number: order.order_number, why: 'already archived' });
+        continue;
+      }
+      if (!allowRealPayments && order.ott_payment_id) {
+        refused.push({
+          order_number: order.order_number,
+          why: 'has a gateway payment id — refund or cancel it instead',
+        });
+        continue;
+      }
+      run("UPDATE orders SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", id);
+      archived.push(order.order_number);
+    }
+    return { archived, refused };
+  });
+}
+
+export function unarchiveOrders(ids) {
+  return transaction(() => {
+    const restored = [];
+    for (const rawId of ids) {
+      const id = Number(rawId);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const order = get('SELECT * FROM orders WHERE id = ? AND archived_at IS NOT NULL', id);
+      if (!order) continue;
+      run('UPDATE orders SET archived_at = NULL, updated_at = datetime(\'now\') WHERE id = ?', id);
+      restored.push(order.order_number);
+    }
+    return restored;
+  });
+}
+
+/**
+ * Permanently delete archived orders.
+ *
+ * Only archived rows, so nothing can be destroyed without first being hidden and
+ * looked at. Children are removed explicitly rather than relying on ON DELETE
+ * CASCADE: refunds are a financial record, and the moment they disappear silently
+ * is the moment nobody can answer a chargeback question later.
+ */
+export function purgeArchivedOrders(ids = null) {
+  return transaction(() => {
+    const targets = ids && ids.length
+      ? all(
+        `SELECT id, order_number FROM orders WHERE archived_at IS NOT NULL AND id IN (${ids.map(() => '?').join(',')})`,
+        ...ids.map(Number),
+      )
+      : all('SELECT id, order_number FROM orders WHERE archived_at IS NOT NULL');
+    for (const target of targets) {
+      run('DELETE FROM order_items WHERE order_id = ?', target.id);
+      run('DELETE FROM payment_attempts WHERE order_id = ?', target.id);
+      run('DELETE FROM refunds WHERE order_id = ?', target.id);
+      run('DELETE FROM orders WHERE id = ?', target.id);
+    }
+    return targets.map((t) => t.order_number);
+  });
 }
 
 /* ------------------------------------------------------------ payment state */

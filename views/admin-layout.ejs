@@ -36,6 +36,7 @@
         <nav class="admin-nav" aria-label="Admin">
           <a href="/admin" class="<%= view === 'admin-dashboard' ? 'is-active' : '' %>">Dashboard</a>
           <a href="/admin/orders" class="<%= view === 'admin-orders' || view === 'admin-order' ? 'is-active' : '' %>">Orders</a>
+          <a href="/admin/orders/cleanup" class="<%= view === 'admin-cleanup' ? 'is-active' : '' %>" style="padding-left:26px;font-size:0.78rem">Test orders</a>
           <a href="/admin/products" class="<%= view === 'admin-products' ? 'is-active' : '' %>">Catalogue</a>
           <a href="/admin/webhooks" class="<%= view === 'admin-webhooks' ? 'is-active' : '' %>">Payment callbacks</a>
           <a href="/admin/emails" class="<%= view === 'admin-emails' ? 'is-active' : '' %>">Email</a>

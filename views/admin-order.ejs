@@ -13,6 +13,13 @@
   </div>
 </div>
 
+<% if (order.archived_at) { %>
+  <div class="alert alert-warn" style="margin-bottom:22px">
+    <strong>Archived <%= order.archived_at %>.</strong> This order is hidden from the order list, the figures and the
+    exports. It can be restored from <a class="link-underline" href="/admin/orders/cleanup">Test orders</a>.
+  </div>
+<% } %>
+
 <% if (typeof req !== 'undefined' && req.query.refund === 'ok') { %>
   <div class="alert alert-success" style="margin-bottom:22px">Refund accepted by the gateway and recorded against this order.</div>
 <% } %>

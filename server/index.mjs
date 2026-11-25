@@ -1627,6 +1627,7 @@ function orderFilters(query) {
     q: String(query.q || ''),
     from: String(query.from || ''),
     to: String(query.to || ''),
+    archived: ['only', 'include'].includes(String(query.archived)) ? String(query.archived) : 'exclude',
   };
 }
 
@@ -1709,6 +1710,81 @@ app.get('/admin/orders.csv', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="orders-${stamp}.csv"`);
   res.send('﻿' + rows.join('\r\n') + '\r\n');
+});
+
+/**
+ * Demonstration and test orders: review, archive, restore, purge.
+ *
+ * The shop was built and tested with fake orders in the database, and an acquirer
+ * opening the order list should not have to guess which rows were real. This page
+ * shows the ones that look like test data, says why each one matched, and lets a
+ * person decide — nothing is hidden or deleted automatically, because the failure
+ * mode of a clever heuristic here is archiving a real customer's paid order.
+ */
+app.get('/admin/orders/cleanup', requireAdmin, (req, res) => {
+  res.render('admin-cleanup', {
+    page: 'admin',
+    layout: 'admin-layout',
+    view: 'admin-cleanup',
+    title: 'Test orders',
+    candidates: orders.testOrderCandidates(500),
+    archived: orders.listOrders({ archived: 'only', limit: 500 }).orders,
+    stats: orders.orderStats(),
+    result: String(req.query.result || ''),
+    detail: String(req.query.detail || ''),
+  });
+});
+
+app.post('/admin/orders/archive', requireWriter, (req, res) => {
+  const ids = [].concat(req.body.ids || []).map(Number).filter(Boolean);
+  const { archived, refused } = orders.archiveOrders(ids, { allowRealPayments: req.body.allowPaid === '1' });
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: 'orders.archive',
+    target: archived.join(', ') || '—',
+    detail: `${archived.length} archived, ${refused.length} refused${refused.length ? `: ${refused.map((r) => `${r.order_number} ${r.why}`).join('; ')}` : ''}`,
+    ip: security.clientIp(req),
+  });
+  const params = new URLSearchParams({ result: archived.length ? 'archived' : 'none' });
+  params.set('detail', `${archived.length} archived${refused.length ? `, ${refused.length} refused` : ''}`);
+  res.redirect(`/admin/orders/cleanup?${params.toString()}`);
+});
+
+app.post('/admin/orders/unarchive', requireWriter, (req, res) => {
+  const ids = [].concat(req.body.ids || []).map(Number).filter(Boolean);
+  const restored = orders.unarchiveOrders(ids);
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: 'orders.unarchive',
+    target: restored.join(', ') || '—',
+    detail: `${restored.length} restored`,
+    ip: security.clientIp(req),
+  });
+  res.redirect(`/admin/orders/cleanup?result=restored&detail=${encodeURIComponent(`${restored.length} restored`)}`);
+});
+
+app.post('/admin/orders/purge', requireWriter, (req, res) => {
+  /*
+   * Permanent deletion needs a typed word, not a checkbox. It is the only action
+   * in this back office that cannot be undone, and it should feel like it.
+   */
+  const confirmation = String(req.body.confirm || '').trim().toUpperCase();
+  if (confirmation !== 'DELETE') {
+    return res.redirect(`/admin/orders/cleanup?result=purge-refused&detail=${encodeURIComponent('Type DELETE to confirm')}`);
+  }
+  const ids = [].concat(req.body.ids || []).map(Number).filter(Boolean);
+  const purged = orders.purgeArchivedOrders(ids.length ? ids : null);
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: 'orders.purge',
+    target: purged.join(', ') || '—',
+    detail: `${purged.length} order(s) permanently deleted`,
+    ip: security.clientIp(req),
+  });
+  res.redirect(`/admin/orders/cleanup?result=purged&detail=${encodeURIComponent(`${purged.length} deleted`)}`);
 });
 
 app.get('/admin/orders/:orderNumber', requireAdmin, (req, res, next) => {

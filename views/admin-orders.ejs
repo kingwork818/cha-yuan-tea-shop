@@ -6,7 +6,10 @@
       <%= total %> order<%= total === 1 ? '' : 's' %> match the filters below.
     </p>
   </div>
-  <a class="btn btn-sm btn-ghost" href="/admin/orders.csv?<%= new URLSearchParams({ q: filters.q, status: filters.status, from: filters.from, to: filters.to }).toString() %>">Export as CSV</a>
+  <div class="row" style="gap:10px;flex-wrap:wrap">
+    <a class="btn btn-sm btn-ghost" href="/admin/orders/cleanup">Test orders</a>
+    <a class="btn btn-sm btn-ghost" href="/admin/orders.csv?<%= new URLSearchParams({ q: filters.q, status: filters.status, from: filters.from, to: filters.to }).toString() %>">Export as CSV</a>
+  </div>
 </div>
 
 <form method="get" action="/admin/orders" class="toolbar" style="align-items:flex-end;flex-wrap:wrap">
@@ -35,7 +38,18 @@
   <% if (filters.q || filters.status || filters.from || filters.to) { %>
     <a class="btn btn-sm btn-ghost" href="/admin/orders">Reset</a>
   <% } %>
+  <% if (filters.archived === 'exclude') { %>
+    <a class="btn btn-sm btn-ghost" href="/admin/orders?archived=include">Show archived too</a>
+  <% } else { %>
+    <a class="btn btn-sm btn-ghost" href="/admin/orders">Hide archived</a>
+  <% } %>
 </form>
+
+<% if (filters.archived !== 'exclude') { %>
+  <div class="alert alert-info" style="margin-bottom:18px">
+    This list includes archived orders, marked <span class="status-pill status-awaiting_payment">archived</span>.
+  </div>
+<% } %>
 
 <div class="admin-card">
   <% if (!orders.length) { %>
@@ -54,6 +68,7 @@
             <td>
               <strong class="mono"><%= o.order_number %></strong>
               <div class="tiny faint"><%= o.created_at %></div>
+              <% if (o.archived_at) { %><div style="margin-top:5px"><span class="status-pill status-awaiting_payment">archived</span></div><% } %>
             </td>
             <td>
               <%= o.customer_name %>

@@ -268,6 +268,16 @@ const ADDED_COLUMNS = [
   { table: 'orders', column: 'tracking_number', definition: "TEXT NOT NULL DEFAULT ''" },
   { table: 'orders', column: 'tracking_carrier', definition: "TEXT NOT NULL DEFAULT ''" },
   { table: 'orders', column: 'shipped_at', definition: 'TEXT' },
+  /*
+   * Demonstration and test orders, hidden rather than destroyed.
+   *
+   * Archiving removes an order from the lists, the figures and the exports, and
+   * keeps the row: a financial record is not something a web form should be able
+   * to erase, and "did anyone refund this?" has to stay answerable even after the
+   * order itself is out of the way. Permanent deletion exists too, but only for
+   * rows that have already been archived, and only with a typed confirmation.
+   */
+  { table: 'orders', column: 'archived_at', definition: 'TEXT' },
   // How this product's image came to exist. 'photo' is a real photograph under a
   // commercial-use licence; 'illustration' is house-drawn artwork standing in
   // until the piece can be photographed. The storefront must say which, so the
