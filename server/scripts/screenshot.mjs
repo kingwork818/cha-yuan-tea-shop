@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 const OUT_DIR = process.argv[3] || path.join(ROOT, '_shots');
 
 const CHROME_CANDIDATES = [

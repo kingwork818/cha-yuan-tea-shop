@@ -6,7 +6,7 @@
  * Prints the priced basket, the OTT Pay result, the 3-D Secure challenge, the
  * callback reconciliation and the final order record. Mock mode by default.
  */
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 let jar = '';
 

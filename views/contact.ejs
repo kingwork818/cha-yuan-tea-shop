@@ -150,8 +150,8 @@
         <p>Messages are read in the order they arrive, <%= company.hours %>, and answered within
           <%= company.responseTime %>. A message sent on a Friday evening is answered on Monday, not over the
           weekend.</p>
-        <p>If your question is about an order in progress, quoting the order number — it is in the confirmation email
-          and on the <a class="link-underline" href="/order">track an order</a> page — means we do not have to write
+        <p>If your question is about an order in progress, quoting the order number<%= mailEnabled ? ', which is in the confirmation email' : '' %>
+          and on the <a class="link-underline" href="/order">track an order</a> page, means we do not have to write
           back and ask for it, which is the single biggest cause of a slow reply.</p>
         <p>We do not take card details over email, the telephone or any messaging app, and we will never ask for them.
           Payment is taken only in the checkout on this site.</p>

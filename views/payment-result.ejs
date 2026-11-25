@@ -108,7 +108,13 @@
 
       <div class="row" style="gap:12px;margin-top:26px;flex-wrap:wrap">
         <a class="btn btn-sm btn-ghost" href="/order/<%= order.order_number %>?email=<%= encodeURIComponent(order.customer_email) %>">View full order</a>
-        <span class="tiny faint">A receipt has been sent to <%= order.customer_email %></span>
+        <span class="tiny faint">
+          <% if (mailEnabled) { %>
+            A receipt has been sent to <%= order.customer_email %>
+          <% } else { %>
+            Keep this order number: <%= order.order_number %>
+          <% } %>
+        </span>
       </div>
     </div>
 

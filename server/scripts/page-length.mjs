@@ -12,7 +12,7 @@
  *   - where the first product appears, in screens
  *   - every top-level section with its offset and height
  */
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 const PAGES = [
   { path: '/', label: 'homepage' },

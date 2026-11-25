@@ -23,6 +23,8 @@ import * as orders from './orders.mjs';
 import * as payments from './payments.mjs';
 import * as imagery from './imagery.mjs';
 import * as security from './security.mjs';
+import * as audit from './audit.mjs';
+import * as mail from './mail.mjs';
 // Named import, not `import * as`: views call this as a function, and a module
 // namespace object is not callable.
 import { fulfilment } from './fulfilment.mjs';
@@ -249,6 +251,16 @@ const money = (cents, { withSymbol = true } = {}) => {
 app.locals.money = money;
 app.locals.config = config;
 app.locals.store = config.store;
+/*
+ * Whether outgoing mail exists, for templates that must not promise a receipt
+ * they cannot send. A plain boolean, so a template reads `mailEnabled` the same
+ * way it reads any other value.
+ */
+app.locals.mailEnabled = mail.mailEnabled();
+app.locals.mailFrom = config.mail.from;
+// The trading entity is named identically on policy pages, receipts and the back
+// office; one local, so a page cannot quietly disagree with another.
+app.locals.company = config.company;
 app.locals.payment = {
   mode: config.payment.mode,
   isMock: config.payment.isMock,
@@ -1135,6 +1147,30 @@ async function scheduleMockCallback(orderNumber, reference, paymentId, amountCen
  * MD5(md5 + signKey). We always answer HTTP 200 with rsp_code SUCCESS so the
  * gateway does not retry forever; failures are recorded for the admin.
  */
+/**
+ * Send the receipt for an order, but only once.
+ *
+ * Payment success reaches this process by more than one route — the gateway's
+ * callback, the mock challenger's self-callback, and a manual re-query from the
+ * back office — and two of them can land within a second of each other. The
+ * customer must not receive the same receipt twice, so the mail log is the
+ * authority on whether it has already gone: a `sent` row for this order and this
+ * kind stops a second attempt.
+ *
+ * Deliberately awaits nothing that the caller depends on for correctness: a mail
+ * failure must never roll back a payment.
+ */
+async function sendReceiptOnce(order) {
+  if (!order) return { ok: false, error: 'no order' };
+  if (!mail.mailEnabled()) return { ok: false, skipped: true, error: 'mail not configured' };
+  const already = dbGet(
+    "SELECT id FROM mail_log WHERE order_number = ? AND kind = 'order.receipt' AND status = 'sent' LIMIT 1",
+    order.order_number,
+  );
+  if (already) return { ok: true, duplicate: true };
+  return mail.sendOrderReceipt(order);
+}
+
 app.post('/api/ottpay/callback', express.json({ limit: '512kb' }), async (req, res) => {
   const body = req.body || {};
   const rawBody = req.rawBody || JSON.stringify(body).slice(0, 20000);
@@ -1213,6 +1249,9 @@ app.post('/api/ottpay/callback', express.json({ limit: '512kb' }), async (req, r
       payload.bizpay_order_id || '',
       order.id,
     );
+    // The customer gets their receipt from the callback, which is the one path
+    // that knows the payment is genuinely captured.
+    if (paid) await sendReceiptOnce(orders.getOrderByNumber(order.order_number));
   }
 
   dbRun('UPDATE webhook_events SET processed = 1, order_id = ? WHERE event_key = ?', order.order_number, eventKey);
@@ -1383,10 +1422,35 @@ app.post('/api/orders/:orderNumber/sync', sameOrigin, requireCsrf, async (req, r
 
 const ADMIN_COOKIE = 'cy_admin';
 
+/*
+ * Two roles, one cookie.
+ *
+ *   admin     the owner. Everything, including refunds and stock.
+ *   reviewer  read-only. Everything visible, nothing changeable.
+ *
+ * The reviewer role exists because an acquirer reviewing this shop before
+ * enabling card payments needs to see the back office, and handing over the
+ * owner's password would hand over refunds and stock edits as well — with no way
+ * to tell afterwards who did what, and no way to revoke the access without
+ * changing the owner's own password.
+ */
 function loadAdmin(req, res, next) {
   const session = security.verifyToken(req.cookies[ADMIN_COOKIE]);
-  req.admin = session && session.role === 'admin' ? session : null;
+  /*
+   * A signed cookie proves it was issued here; the session row proves it is still
+   * current. Both are required: without the row, signing out would only clear the
+   * browser's copy of a token that keeps working, and revoking a reviewer's access
+   * would mean waiting twelve hours or changing the owner's own password.
+   */
+  const live = session?.sid
+    ? dbGet("SELECT * FROM admin_sessions WHERE sid = ? AND revoked_at IS NULL AND expires_at > datetime('now')", String(session.sid))
+    : null;
+  req.admin = live && (live.role === 'admin' || live.role === 'reviewer')
+    ? { email: live.email, role: live.role, sid: live.sid }
+    : null;
+  req.canWrite = req.admin?.role === 'admin';
   res.locals.admin = req.admin;
+  res.locals.canWrite = req.canWrite;
   next();
 }
 app.use(loadAdmin);
@@ -1399,9 +1463,42 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * Everything that changes something goes through here.
+ *
+ * A read-only session that is merely *not shown* the buttons is not read-only:
+ * the form endpoints are guessable URLs. The refusal is server-side, and it says
+ * why, because a reviewer who clicks a stale link should not be left wondering
+ * whether the shop is broken.
+ */
+function requireWriter(req, res, next) {
+  if (!req.admin) {
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'unauthorized' });
+    return res.redirect(`/admin/login?next=${encodeURIComponent(req.originalUrl)}`);
+  }
+  if (!req.canWrite) {
+    audit.record({
+      actor: req.admin.email,
+      role: req.admin.role,
+      action: 'write.denied',
+      target: req.originalUrl,
+      ip: security.clientIp(req),
+    });
+    if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'forbidden', message: 'Read-only session.' });
+    return res.status(403).render('admin-denied', {
+      page: 'admin',
+      layout: 'admin-layout',
+      view: 'admin-denied',
+      title: 'Read-only session',
+      action: `${req.method} ${req.originalUrl}`,
+    });
+  }
+  next();
+}
+
 app.get('/admin/login', (req, res) => {
   if (req.admin) return res.redirect('/admin');
-  res.render('admin-login', { page: 'admin', layout: 'admin-layout', title: 'Admin sign in', error: null, next: req.query.next || '/admin' });
+  res.render('admin-login', { page: 'admin', layout: 'admin-layout', title: 'Staff sign in', error: null, next: req.query.next || '/admin' });
 });
 
 app.post('/admin/login', (req, res) => {
@@ -1409,33 +1506,95 @@ app.post('/admin/login', (req, res) => {
   const { allowed, retryAfterSeconds } = security.rateLimit(`adminlogin:${ip}`, { limit: 8, windowMs: 5 * 60_000 });
   if (!allowed) {
     return res.status(429).render('admin-login', {
-      page: 'admin', layout: 'admin-layout', title: 'Admin sign in', next: '/admin',
+      page: 'admin', layout: 'admin-layout', title: 'Staff sign in', next: '/admin',
       error: `Too many attempts. Try again in ${retryAfterSeconds} seconds.`,
     });
   }
 
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
-  const ok = security.safeEqual(email, config.admin.email) && security.safeEqual(password, config.admin.password);
 
-  if (!ok) {
+  /*
+   * Two accounts, one form. Comparisons are constant-time per field, and the role
+   * is only assigned once neither check threw — no branch reveals which of the two
+   * mailboxes exists by responding differently.
+   */
+  const ownerMatch = security.safeEqual(email, config.admin.email) && security.safeEqual(password, config.admin.password);
+  const reviewerMatch = config.admin.reviewerEnabled
+    && security.safeEqual(email, config.admin.reviewerEmail)
+    && security.safeEqual(password, config.admin.reviewerPassword);
+
+  const role = ownerMatch ? 'admin' : reviewerMatch ? 'reviewer' : null;
+
+  if (!role) {
+    audit.record({ actor: email, role: 'unknown', action: audit.ACTIONS.SIGN_IN_FAILED, target: 'admin', ip });
     return res.status(401).render('admin-login', {
-      page: 'admin', layout: 'admin-layout', title: 'Admin sign in',
+      page: 'admin', layout: 'admin-layout', title: 'Staff sign in',
       error: 'Those credentials were not accepted.', next: req.body.next || '/admin',
     });
   }
 
-  res.setCookie(ADMIN_COOKIE, security.signToken({ role: 'admin', email }, 60 * 60 * 12), { httpOnly: true, maxAge: 60 * 60 * 12 });
-  res.redirect(String(req.body.next || '/admin').startsWith('/admin') ? String(req.body.next || '/admin') : '/admin');
+  /*
+   * A session id, so this sign-in can be revoked on its own. The cookie carries
+   * it and the row below is what makes it live — see loadAdmin.
+   */
+  const sid = crypto.randomUUID();
+  res.setCookie(ADMIN_COOKIE, security.signToken({ role, email, sid }, 60 * 60 * 12), { httpOnly: true, maxAge: 60 * 60 * 12 });
+  dbRun(
+    "INSERT INTO admin_sessions (sid, email, role, expires_at) VALUES (?,?,?, datetime('now','+12 hours'))",
+    sid,
+    email,
+    role,
+  );
+  // Housekeeping: a year of sessions is not a record anyone needs, and an
+  // unbounded table is a slow leak.
+  dbRun("DELETE FROM admin_sessions WHERE expires_at < datetime('now','-30 days')");
+  audit.record({ actor: email, role, action: audit.ACTIONS.SIGN_IN, target: 'admin', ip });
+  const next = String(req.body.next || '/admin');
+  res.redirect(next.startsWith('/admin') ? next : '/admin');
 });
 
 app.post('/admin/logout', (req, res) => {
+  if (req.admin) {
+    // Revoke the row, not just the browser's copy of the cookie: this is what
+    // makes "sign out" mean something for a shared or handed-over login.
+    dbRun("UPDATE admin_sessions SET revoked_at = datetime('now') WHERE sid = ?", req.admin.sid);
+    audit.record({
+      actor: req.admin.email,
+      role: req.admin.role,
+      action: audit.ACTIONS.SIGN_OUT,
+      target: 'admin',
+      ip: security.clientIp(req),
+    });
+  }
+  res.setCookie(ADMIN_COOKIE, '', { maxAge: 0 });
+  res.redirect('/admin/login');
+});
+
+/**
+ * POST /admin/sessions/revoke-all
+ *
+ * Ends every live session for every account. The owner's escape hatch after
+ * lending the back office to someone: one click, and no outstanding cookie works
+ * any more — including the reviewer's, and including the current one, which is
+ * why the response redirects to sign in rather than back to the dashboard.
+ */
+app.post('/admin/sessions/revoke-all', requireWriter, (req, res) => {
+  const ended = dbRun("UPDATE admin_sessions SET revoked_at = datetime('now') WHERE revoked_at IS NULL");
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: 'sessions.revoke-all',
+    target: 'admin',
+    detail: `${ended.changes ?? 0} session(s) ended`,
+    ip: security.clientIp(req),
+  });
   res.setCookie(ADMIN_COOKIE, '', { maxAge: 0 });
   res.redirect('/admin/login');
 });
 
 app.get('/admin', requireAdmin, (req, res) => {
-  const { orders: list } = orders.listOrders({ limit: 20 });
+  const { orders: list } = orders.listOrders({ limit: 12 });
   res.render('admin-dashboard', {
     page: 'admin',
     layout: 'admin-layout',
@@ -1444,17 +1603,36 @@ app.get('/admin', requireAdmin, (req, res) => {
     stats: orders.orderStats(),
     recent: list,
     lowStock: catalog.lowStock(6),
-    paymentMode: config.payment.mode,
-    baseUrl: config.store.publicBaseUrl,
+    activity: audit.recent(12),
+    auditSummary: audit.summary(),
+    mailSummary: mail.mailSummary(),
+    mailEnabled: mail.mailEnabled(),
   });
 });
 
+/* -------------------------------------------------------------------------- */
+/*  Orders                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The order list, with the filters an accountant or a reviewer actually uses.
+ *
+ * from/to are plain dates and are applied to the order's creation date, not its
+ * last update: "orders placed in February" is a question about when the customer
+ * bought, and a status change must not move an order into another month's figures.
+ */
+function orderFilters(query) {
+  return {
+    status: String(query.status || ''),
+    q: String(query.q || ''),
+    from: String(query.from || ''),
+    to: String(query.to || ''),
+  };
+}
+
 app.get('/admin/orders', requireAdmin, (req, res) => {
-  const { orders: list, total } = orders.listOrders({
-    limit: 100,
-    status: String(req.query.status || ''),
-    search: String(req.query.q || ''),
-  });
+  const filters = orderFilters(req.query);
+  const { orders: list, total } = orders.listOrders({ limit: 200, ...filters });
   res.render('admin-orders', {
     page: 'admin',
     layout: 'admin-layout',
@@ -1462,8 +1640,75 @@ app.get('/admin/orders', requireAdmin, (req, res) => {
     title: 'Orders',
     orders: list,
     total,
-    filters: { status: String(req.query.status || ''), q: String(req.query.q || '') },
+    filters,
+    statuses: orders.ORDER_STATUSES,
+    mailEnabled: mail.mailEnabled(),
   });
+});
+
+/**
+ * CSV export of exactly what the list is showing.
+ *
+ * Semicolon-free, quoted CSV with a UTF-8 BOM: Excel on a Windows machine opens a
+ * BOM-less UTF-8 file as the system codepage, which turns a customer name with an
+ * accent into mojibake in the accountant's spreadsheet — the one place this data
+ * has to be correct.
+ */
+app.get('/admin/orders.csv', requireAdmin, (req, res) => {
+  const filters = orderFilters(req.query);
+  const { orders: list } = orders.listOrders({ limit: 500, ...filters });
+
+  const columns = [
+    ['order_number', (o) => o.order_number],
+    ['placed_at', (o) => o.created_at],
+    ['paid_at', (o) => o.paid_at || ''],
+    ['status', (o) => o.status],
+    ['payment_status', (o) => o.payment_status],
+    ['customer_name', (o) => o.customer_name],
+    ['customer_email', (o) => o.customer_email],
+    ['customer_phone', (o) => o.customer_phone || ''],
+    ['ship_to_name', (o) => o.shipping_name],
+    ['ship_to_line1', (o) => o.shipping_line1],
+    ['ship_to_line2', (o) => o.shipping_line2 || ''],
+    ['ship_to_city', (o) => o.shipping_city],
+    ['ship_to_province', (o) => o.shipping_province],
+    ['ship_to_postal_code', (o) => o.shipping_postal_code],
+    ['ship_to_country', (o) => o.shipping_country],
+    ['shipping_method', (o) => o.shipping_method],
+    ['currency', (o) => o.currency],
+    ['subtotal', (o) => (o.subtotal_cents / 100).toFixed(2)],
+    ['shipping', (o) => (o.shipping_cents / 100).toFixed(2)],
+    ['tax', (o) => (o.tax_cents / 100).toFixed(2)],
+    ['total', (o) => (o.total_cents / 100).toFixed(2)],
+    ['refunded', (o) => (o.refunded_cents / 100).toFixed(2)],
+    ['card', (o) => [o.ott_cc_type, o.ott_card_last4 ? '****' + o.ott_card_last4 : ''].filter(Boolean).join(' ')],
+    ['gateway_reference', (o) => o.ott_reference || ''],
+    ['gateway_payment_id', (o) => o.ott_payment_id || ''],
+    ['item_count', (o) => (o.items || []).reduce((n, i) => n + i.quantity, 0)],
+  ];
+
+  const cell = (value) => {
+    const s = String(value ?? '');
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const rows = [
+    columns.map(([name]) => name).join(','),
+    ...list.map((o) => columns.map(([, get]) => cell(get(o))).join(',')),
+  ];
+
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: 'orders.export',
+    target: 'orders.csv',
+    detail: `${list.length} row(s) ${JSON.stringify(filters)}`,
+    ip: security.clientIp(req),
+  });
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="orders-${stamp}.csv"`);
+  res.send('﻿' + rows.join('\r\n') + '\r\n');
 });
 
 app.get('/admin/orders/:orderNumber', requireAdmin, (req, res, next) => {
@@ -1478,23 +1723,95 @@ app.get('/admin/orders/:orderNumber', requireAdmin, (req, res, next) => {
     req,
     statuses: orders.ORDER_STATUSES,
     webhooks: dbAll('SELECT * FROM webhook_events WHERE order_id = ? OR decrypted LIKE ? ORDER BY id DESC LIMIT 20', order.order_number, `%${order.ott_reference}%`),
+    orderActivity: audit.forOrder(order.order_number, 20),
+    emails: mail.mailForOrder(order.order_number, 10),
+    mailEnabled: mail.mailEnabled(),
   });
 });
 
-app.post('/admin/orders/:orderNumber/status', requireAdmin, (req, res) => {
+/**
+ * A printable receipt.
+ *
+ * The acquirer's reviewer and any accountant both eventually want the same thing:
+ * a document for one order, in the shape a receipt has. Rendering it here rather
+ * than as a PDF keeps it dependency-free and printable from any browser, and it
+ * carries the same identity block as the policy pages, which is what makes it
+ * useful in a dispute.
+ */
+app.get('/admin/orders/:orderNumber/receipt', requireAdmin, (req, res, next) => {
+  const order = orders.getOrderByNumber(req.params.orderNumber);
+  if (!order) return next();
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.ORDER_RECEIPT,
+    target: order.order_number,
+    ip: security.clientIp(req),
+  });
+  res.render('admin-receipt', {
+    layout: false,
+    title: `Receipt ${order.order_number}`,
+    order,
+    company: config.company,
+    store: config.store,
+    money: (cents) => `${order.currency} ${(Number(cents || 0) / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    printedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    asset: assetUrl,
+  });
+});
+
+app.post('/admin/orders/:orderNumber/status', requireWriter, (req, res) => {
   const order = orders.getOrderByNumber(req.params.orderNumber);
   if (!order) return res.status(404).send('Not found');
   const status = String(req.body.status || '');
+  const tracking = String(req.body.tracking || '').trim();
+  const carrier = String(req.body.carrier || '').trim();
+  const previous = order.status;
   try {
-    orders.updateOrderStatus(order.id, status, req.body.adminNote ?? null);
+    orders.updateOrderStatus(order.id, status, req.body.adminNote ?? null, {
+      trackingNumber: tracking,
+      trackingCarrier: carrier,
+    });
     if (status === 'cancelled' && !order.paid_at) orders.restockOrder(order.id);
   } catch (err) {
     return res.status(400).send(err.message);
   }
+
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.ORDER_STATUS,
+    target: order.order_number,
+    detail: `${previous} → ${status}${req.body.adminNote ? ` · ${String(req.body.adminNote).slice(0, 200)}` : ''}`,
+    ip: security.clientIp(req),
+  });
+
+  /*
+   * Dispatch notice, sent only on the transition into shipped and only when a
+   * tracking number was entered. Re-saving an already-shipped order must not mail
+   * the customer a second time.
+   */
+  if (status === 'shipped' && previous !== 'shipped' && tracking) {
+    const fresh = orders.getOrderByNumber(order.order_number);
+    mail
+      .sendDispatchNotice(fresh, { trackingNumber: tracking, carrier })
+      .then((result) => {
+        audit.record({
+          actor: req.admin.email,
+          role: req.admin.role,
+          action: audit.ACTIONS.MAIL_SEND,
+          target: order.order_number,
+          detail: `dispatch notice ${result.ok ? 'sent' : result.skipped ? 'skipped' : `failed: ${result.error}`}`,
+          ip: security.clientIp(req),
+        });
+      })
+      .catch(() => {});
+  }
+
   res.redirect(`/admin/orders/${order.order_number}`);
 });
 
-app.post('/admin/orders/:orderNumber/refund', requireAdmin, async (req, res) => {
+app.post('/admin/orders/:orderNumber/refund', requireWriter, async (req, res) => {
   const order = orders.getOrderByNumber(req.params.orderNumber);
   if (!order) return res.status(404).send('Not found');
 
@@ -1512,6 +1829,15 @@ app.post('/admin/orders/:orderNumber/refund', requireAdmin, async (req, res) => 
   const result = await payments.refundPayment({
     oriPaymentId: order.ott_payment_id || order.ott_reference,
     refundAmountCents: requested,
+  });
+
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.ORDER_REFUND,
+    target: order.order_number,
+    detail: `${(requested / 100).toFixed(2)} ${order.currency} · ${result.ok ? 'accepted' : `rejected: ${result.error?.message || 'error'}`}${req.body.reason ? ` · ${String(req.body.reason).slice(0, 120)}` : ''}`,
+    ip: security.clientIp(req),
   });
 
   if (!result.ok) {
@@ -1536,10 +1862,28 @@ app.post('/admin/orders/:orderNumber/refund', requireAdmin, async (req, res) => 
     responsePayload: result.data.responsePayload,
   });
 
+  if (result.data.refundStatus !== 'failure') {
+    const fresh = orders.getOrderByNumber(order.order_number);
+    const fully = fresh.refunded_cents >= fresh.total_cents;
+    mail
+      .sendRefundNotice(fresh, { amountCents: requested, full: fully })
+      .then((sent) => {
+        audit.record({
+          actor: req.admin.email,
+          role: req.admin.role,
+          action: audit.ACTIONS.MAIL_SEND,
+          target: order.order_number,
+          detail: `refund notice ${sent.ok ? 'sent' : sent.skipped ? 'skipped' : `failed: ${sent.error}`}`,
+          ip: security.clientIp(req),
+        });
+      })
+      .catch(() => {});
+  }
+
   res.redirect(`/admin/orders/${order.order_number}?refund=ok`);
 });
 
-app.post('/admin/orders/:orderNumber/sync', requireAdmin, async (req, res) => {
+app.post('/admin/orders/:orderNumber/sync', requireWriter, async (req, res) => {
   const order = orders.getOrderByNumber(req.params.orderNumber);
   if (!order) return res.status(404).send('Not found');
   const result = await payments.fetchPaymentStatus({ paymentId: order.ott_payment_id, reference: order.ott_reference });
@@ -1551,22 +1895,55 @@ app.post('/admin/orders/:orderNumber/sync', requireAdmin, async (req, res) => {
         reference: order.ott_reference,
         result: { paymentStatus: 'captured', paymentId: result.data.paymentId, responsePayload: result.data.responsePayload },
       });
+      await sendReceiptOnce(orders.getOrderByNumber(order.order_number));
     }
   }
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.ORDER_SYNC,
+    target: order.order_number,
+    detail: result.ok ? `gateway says ${result.data.paymentStatus || 'unknown'}` : `failed: ${result.error?.message || 'error'}`,
+    ip: security.clientIp(req),
+  });
   res.redirect(`/admin/orders/${order.order_number}?sync=${result.ok ? 'ok' : 'failed'}`);
 });
 
+/* -------------------------------------------------------------------------- */
+/*  Catalogue                                                                  */
+/* -------------------------------------------------------------------------- */
+
 app.get('/admin/products', requireAdmin, (req, res) => {
   const { products, total } = catalog.listProducts({ limit: 200, sort: 'name' });
-  res.render('admin-products', { page: 'admin', layout: 'admin-layout', view: 'admin-products', title: 'Catalogue', products, total });
+  res.render('admin-products', {
+    page: 'admin',
+    layout: 'admin-layout',
+    view: 'admin-products',
+    title: 'Catalogue',
+    products,
+    total,
+  });
 });
 
-app.post('/admin/products/:variantId/stock', requireAdmin, (req, res) => {
+app.post('/admin/products/:variantId/stock', requireWriter, (req, res) => {
   const stock = Math.max(0, Math.min(100000, Number.parseInt(req.body.stock, 10) || 0));
+  const before = dbGet('SELECT v.stock, p.name, v.label FROM variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?', Number(req.params.variantId));
   dbRun('UPDATE variants SET stock = ? WHERE id = ?', stock, Number(req.params.variantId));
   catalog.invalidateChrome();
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.STOCK_UPDATE,
+    target: String(req.params.variantId),
+    detail: before ? `${before.name} · ${before.label}: ${before.stock} → ${stock}` : `stock → ${stock}`,
+    ip: security.clientIp(req),
+  });
   res.redirect(req.get('referer') || '/admin/products');
 });
+
+/* -------------------------------------------------------------------------- */
+/*  Payments, email and settings                                               */
+/* -------------------------------------------------------------------------- */
 
 app.get('/admin/webhooks', requireAdmin, (req, res) => {
   res.render('admin-webhooks', {
@@ -1578,6 +1955,58 @@ app.get('/admin/webhooks', requireAdmin, (req, res) => {
   });
 });
 
+app.get('/admin/emails', requireAdmin, (req, res) => {
+  res.render('admin-emails', {
+    page: 'admin',
+    layout: 'admin-layout',
+    view: 'admin-emails',
+    title: 'Email',
+    emails: mail.recentMail(100),
+    mailEnabled: mail.mailEnabled(),
+    mailReason: config.mail.reason,
+    mailFrom: config.mail.from,
+    summary: mail.mailSummary(),
+  });
+});
+
+/**
+ * Send a test message to the signed-in staff member.
+ *
+ * The point is to be able to prove, in front of an acquirer, that the shop can
+ * deliver a receipt — without placing a fake order.
+ */
+app.post('/admin/emails/test', requireWriter, async (req, res) => {
+  const to = String(req.body.to || req.admin.email).trim();
+  const rendered = mail.renderOrderReceipt(orders.getOrderByNumber(String(req.body.orderNumber || '')) || {
+    order_number: 'CY-TEST-0000',
+    currency: config.store.currency,
+    customer_name: 'Test Recipient',
+    customer_email: to,
+    subtotal_cents: 12000,
+    shipping_cents: 0,
+    tax_cents: 1560,
+    total_cents: 13560,
+    shipping_method: 'Standard',
+    shipping_name: 'Test Recipient',
+    shipping_line1: '1 Test Street',
+    shipping_city: 'Markham',
+    shipping_province: 'ON',
+    shipping_postal_code: 'L3R 3K2',
+    shipping_country: 'Canada',
+    items: [{ product_name: 'Test item', variant_label: 'sample', sku: 'CY-TEST-000', quantity: 1, line_total_cents: 12000 }],
+  });
+  const result = await mail.send({ kind: 'test', to, orderNumber: '', ...rendered });
+  audit.record({
+    actor: req.admin.email,
+    role: req.admin.role,
+    action: audit.ACTIONS.MAIL_TEST,
+    target: to,
+    detail: result.ok ? 'sent' : `${result.skipped ? 'skipped' : 'failed'}: ${result.error}`,
+    ip: security.clientIp(req),
+  });
+  res.redirect(`/admin/emails?test=${result.ok ? 'ok' : result.skipped ? 'skipped' : 'failed'}`);
+});
+
 app.get('/admin/settings', requireAdmin, (req, res) => {
   const review = validateConfig();
   res.render('admin-settings', {
@@ -1587,7 +2016,19 @@ app.get('/admin/settings', requireAdmin, (req, res) => {
     title: 'Settings',
     problems: review.problems,
     warnings: review.warnings,
-    envPath: path.join(config.rootDir, '.env'),
+    mailEnabled: mail.mailEnabled(),
+    mailReason: config.mail.reason,
+  });
+});
+
+app.get('/admin/activity', requireAdmin, (req, res) => {
+  res.render('admin-activity', {
+    page: 'admin',
+    layout: 'admin-layout',
+    view: 'admin-activity',
+    title: 'Activity log',
+    actions: audit.recent(200),
+    summary: audit.summary(),
   });
 });
 
@@ -1643,6 +2084,82 @@ app.get('/dev/audit', async (req, res) => {
   } catch (err) {
     res.status(502).send(`Could not fetch ${target}: ${err.message}`);
   }
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Crawl directives                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /robots.txt
+ *
+ * The back office, the API and the order pages are excluded rather than merely
+ * unlinked: a crawler that finds `/admin/login` will try it repeatedly, and the
+ * rate limiter would then be busy with robots. The sitemap line is how the
+ * product pages get indexed at all.
+ */
+app.get('/robots.txt', (req, res) => {
+  const base = config.store.publicBaseUrl;
+  res.type('text/plain').send(
+    [
+      'User-agent: *',
+      'Allow: /',
+      'Disallow: /admin',
+      'Disallow: /api/',
+      'Disallow: /cart',
+      'Disallow: /checkout',
+      'Disallow: /order',
+      'Disallow: /payment/',
+      '',
+      `Sitemap: ${base}/sitemap.xml`,
+      '',
+    ].join('\n'),
+  );
+});
+
+/**
+ * GET /sitemap.xml
+ *
+ * Every page a customer can reach on purpose, with the products at their real
+ * paths. Catalogue pages are generated from the database rather than listed by
+ * hand, so a withdrawn product cannot linger in the sitemap.
+ */
+app.get('/sitemap.xml', (req, res) => {
+  const base = config.store.publicBaseUrl;
+  const staticPaths = [
+    ['/', '1.0', 'daily'],
+    ['/shop', '0.9', 'daily'],
+    ['/shop?department=tea', '0.9', 'weekly'],
+    ['/shop?department=jewellery', '0.9', 'weekly'],
+    ['/guides', '0.7', 'monthly'],
+    ['/about', '0.6', 'monthly'],
+    ['/shipping', '0.5', 'monthly'],
+    ['/refund', '0.5', 'monthly'],
+    ['/terms', '0.4', 'yearly'],
+    ['/privacy', '0.4', 'yearly'],
+    ['/contact', '0.5', 'monthly'],
+  ];
+
+  const urls = staticPaths.map(
+    ([p, priority, freq]) => `  <url><loc>${base}${p.replace(/&/g, '&amp;')}</loc><changefreq>${freq}</changefreq><priority>${priority}</priority></url>`,
+  );
+
+  let products = [];
+  try {
+    products = dbAll('SELECT slug, updated_at FROM products WHERE is_active = 1 ORDER BY id');
+  } catch {
+    products = [];
+  }
+  for (const product of products) {
+    urls.push(
+      `  <url><loc>${base}/tea/${encodeURIComponent(product.slug)}</loc>`
+        + `<changefreq>weekly</changefreq><priority>0.8</priority></url>`,
+    );
+  }
+
+  res
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`);
 });
 
 /* -------------------------------------------------------------------------- */

@@ -3,9 +3,10 @@
     <span class="eyebrow">Diagnostics</span>
     <h1 style="font-size:clamp(1.7rem,3vw,2.3rem);margin-top:10px">Payment callbacks</h1>
     <p class="small faint" style="margin-top:8px">
-      Every POST OTT Pay makes to <span class="mono"><%= config.store.publicBaseUrl %>/api/ottpay/callback</span>,
-      with the AES-ECB decryption result. Failed decryptions are kept here so a signature problem is visible
-      immediately rather than silently losing payments.
+      Every notification the payment gateway posts to
+      <span class="mono"><%= config.store.publicBaseUrl %>/api/ottpay/callback</span>, with the decryption result.
+      A message that cannot be decrypted is kept here rather than discarded, so a signature problem is visible
+      immediately instead of looking like a payment that never arrived.
     </p>
   </div>
 </div>
@@ -13,8 +14,7 @@
 <% if (!events.length) { %>
   <div class="admin-card">
     <p class="muted small">
-      No callbacks received yet. Place a test order from the storefront — in mock mode the shop sends itself a genuine
-      signed callback so this pipeline is exercised end to end.
+      No callbacks received yet. They appear here the first time a payment is completed.
     </p>
   </div>
 <% } else { %>

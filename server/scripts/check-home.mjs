@@ -7,7 +7,7 @@
  *
  *   node server/scripts/check-home.mjs [baseUrl]
  */
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 const res = await fetch(`${BASE}/`);
 const html = await res.text();

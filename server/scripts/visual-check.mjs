@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const CHROME_CANDIDATES = [

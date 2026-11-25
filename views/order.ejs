@@ -24,7 +24,8 @@
 
   <% if (!verified) { %>
     <div class="alert alert-info" style="margin-top:26px">
-      The delivery address is hidden. Open the link from your confirmation email, or
+      The delivery address is hidden.
+      <% if (mailEnabled) { %>Open the link from your confirmation email, or<% } %>
       <a class="link-underline" href="/order?orderNumber=<%= order.order_number %>">enter your email</a> to see the full order.
     </div>
   <% } %>

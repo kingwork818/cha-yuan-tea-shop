@@ -6,10 +6,36 @@
  *   signed AES callback -> order confirmation -> admin sign-in -> refund.
  *
  * Usage:  node server/scripts/smoke.mjs [baseUrl]
- * Default baseUrl is http://127.0.0.1:3080
+ * Default baseUrl is http://127.0.0.1:3080, or $BASE_URL when set.
  */
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+/**
+ * Refuse to run against something that is not this shop.
+ *
+ * A port can be held by anything. When it is, every assertion fails with a
+ * confusing 401 or 404 and the real cause — "the server under test is not the
+ * server you think" — is invisible in a wall of red. One cheap probe turns that
+ * into a single sentence.
+ */
+async function assertThisIsTheShop() {
+  let response;
+  try {
+    response = await fetch(`${BASE}/healthz`);
+  } catch (err) {
+    console.error(`\n  No server at ${BASE} (${err.message}).`);
+    console.error('  Start one with `npm start`, or pass a URL: node server/scripts/smoke.mjs http://host:port\n');
+    process.exit(2);
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.status !== 'ok' || !body.products) {
+    console.error(`\n  ${BASE}/healthz did not answer like this shop (status ${response.status}, body ${JSON.stringify(body).slice(0, 120)}).`);
+    console.error('  Something else may be listening on that port.\n');
+    process.exit(2);
+  }
+}
+
+await assertThisIsTheShop();
 
 let cookieJar = '';
 let passed = 0;

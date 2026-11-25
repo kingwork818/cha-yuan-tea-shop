@@ -12,7 +12,7 @@
  * with the deployment itself: a bad path fails here and in the browser, while a
  * storage or build problem fails here with a status the browser cannot show you.
  */
-const BASE = (process.argv[2] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[2] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 const PAGES = [
   '/',

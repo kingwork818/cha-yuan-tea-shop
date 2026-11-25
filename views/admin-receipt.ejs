@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= title %></title>
+  <meta name="robots" content="noindex, nofollow" />
+  <style>
+    /*
+     * A receipt has one job: to be readable on paper and in a PDF, on a white
+     * ground, with the numbers aligned. It deliberately does not inherit the
+     * shop's dark theme — a receipt printed from a dark page is a black rectangle
+     * on most printers, and an acquirer filing one wants ink on white.
+     */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 40px 24px;
+      font-family: 'Inter', Helvetica, Arial, sans-serif;
+      font-size: 13px; line-height: 1.6; color: #1b2620; background: #eceae3;
+    }
+    .sheet {
+      max-width: 720px; margin: 0 auto; background: #fff;
+      border: 1px solid #d8d4c8; padding: 44px 48px;
+    }
+    .top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .brand { font-family: Georgia, 'Times New Roman', serif; font-size: 20px; letter-spacing: .16em; text-transform: uppercase; }
+    .brand-sub { font-size: 9px; letter-spacing: .24em; text-transform: uppercase; color: #6b7a70; margin-top: 5px; }
+    .doc-title { text-align: right; }
+    .doc-title h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size: 22px; margin: 0 0 4px; letter-spacing: .04em; }
+    .doc-title div { font-size: 12px; color: #5c6a61; }
+    .meta { display: flex; gap: 40px; flex-wrap: wrap; margin: 30px 0 8px; padding: 18px 0; border-top: 1px solid #e2ded3; border-bottom: 1px solid #e2ded3; }
+    .meta div { min-width: 160px; }
+    .meta .k { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: #7b8a80; margin-bottom: 4px; }
+    .meta .v { font-family: 'Courier New', monospace; font-size: 12px; }
+    h2 { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #7b8a80; margin: 26px 0 8px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #7b8a80; padding: 0 0 8px; font-weight: 600; }
+    th.num, td.num { text-align: right; }
+    td { padding: 9px 0; border-bottom: 1px solid #eceae3; vertical-align: top; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sku { display: block; font-family: 'Courier New', monospace; font-size: 10px; color: #8a978f; }
+    .totals { margin-top: 4px; }
+    .totals tr td { border: 0; padding: 4px 0; }
+    .totals tr td.num { font-variant-numeric: tabular-nums; }
+    .totals .grand td { border-top: 1px solid #1b2620; padding-top: 9px; font-weight: 600; font-size: 15px; }
+    .cols { display: flex; gap: 40px; flex-wrap: wrap; }
+    .cols > div { flex: 1 1 240px; }
+    .footer { margin-top: 34px; padding-top: 18px; border-top: 1px solid #e2ded3; font-size: 11px; color: #5c6a61; }
+    .footer strong { color: #1b2620; font-weight: 600; }
+    .stamp { display: inline-block; margin-top: 10px; padding: 3px 10px; border: 1px solid #1b2620; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+    .toolbar { max-width: 720px; margin: 0 auto 16px; display: flex; gap: 10px; justify-content: flex-end; }
+    .toolbar a, .toolbar button {
+      font: inherit; font-size: 12px; padding: 7px 14px; cursor: pointer;
+      border: 1px solid #1b2620; background: #1b2620; color: #fff; text-decoration: none; border-radius: 2px;
+    }
+    .toolbar a.ghost { background: transparent; color: #1b2620; }
+    /* Paper wins: no page background, no toolbar, no colour. */
+    @media print {
+      body { background: #fff; padding: 0; }
+      .sheet { border: 0; padding: 0; max-width: none; }
+      .toolbar { display: none; }
+      @page { margin: 16mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <a class="ghost" href="/admin/orders/<%= order.order_number %>">Back to order</a>
+    <button type="button" onclick="window.print()">Print / save as PDF</button>
+  </div>
+
+  <div class="sheet">
+    <div class="top">
+      <div>
+        <div class="brand"><%= store.name %></div>
+        <div class="brand-sub"><%= store.logoSubtitle %></div>
+      </div>
+      <div class="doc-title">
+        <h1>Receipt</h1>
+        <div><%= order.order_number %></div>
+      </div>
+    </div>
+
+    <div class="meta">
+      <div><div class="k">Order date</div><div class="v"><%= order.created_at %></div></div>
+      <div><div class="k">Paid</div><div class="v"><%= order.paid_at || '—' %></div></div>
+      <div><div class="k">Payment status</div><div class="v"><%= order.payment_status.replace(/_/g, ' ') %></div></div>
+      <div><div class="k">Card</div><div class="v">
+        <%= order.ott_cc_type || '—' %><% if (order.ott_card_last4) { %> ····<%= order.ott_card_last4 %><% } %>
+      </div></div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h2>Customer</h2>
+        <div><%= order.customer_name %></div>
+        <div><%= order.customer_email %></div>
+        <% if (order.customer_phone) { %><div><%= order.customer_phone %></div><% } %>
+      </div>
+      <div>
+        <h2>Delivered to</h2>
+        <div><%= order.shipping_name %></div>
+        <div><%= order.shipping_line1 %></div>
+        <% if (order.shipping_line2) { %><div><%= order.shipping_line2 %></div><% } %>
+        <div><%= order.shipping_city %>, <%= order.shipping_province %> <%= order.shipping_postal_code %></div>
+        <div><%= order.shipping_country %></div>
+      </div>
+      <div>
+        <h2>Dispatch</h2>
+        <div><%= order.shipping_method %></div>
+        <% if (order.tracking_number) { %>
+          <div><%= order.tracking_carrier || 'Carrier' %> · <%= order.tracking_number %></div>
+        <% } %>
+        <% if (order.shipped_at) { %><div>Sent <%= order.shipped_at %></div><% } %>
+      </div>
+    </div>
+
+    <h2>Items</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th><th>Size</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% order.items.forEach(item => { %>
+          <tr>
+            <td><%= item.product_name %><span class="sku"><%= item.sku %></span></td>
+            <td><%= item.variant_label %></td>
+            <td class="num"><%= item.quantity %></td>
+            <td class="num"><%= money(item.unit_price_cents) %></td>
+            <td class="num"><%= money(item.line_total_cents) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+
+    <table class="totals">
+      <tr><td>Subtotal</td><td class="num"><%= money(order.subtotal_cents) %></td></tr>
+      <tr><td>Shipping (<%= order.shipping_method %>)</td><td class="num"><%= order.shipping_cents === 0 ? 'Complimentary' : money(order.shipping_cents) %></td></tr>
+      <tr><td><%= store.taxLabel %></td><td class="num"><%= money(order.tax_cents) %></td></tr>
+      <% if (order.discount_cents) { %>
+        <tr><td>Discount</td><td class="num">−<%= money(order.discount_cents) %></td></tr>
+      <% } %>
+      <tr class="grand"><td>Total paid</td><td class="num"><%= money(order.total_cents) %></td></tr>
+      <% if (order.refunded_cents) { %>
+        <tr><td>Refunded</td><td class="num">−<%= money(order.refunded_cents) %></td></tr>
+        <tr><td>Net</td><td class="num"><%= money(order.total_cents - order.refunded_cents) %></td></tr>
+      <% } %>
+    </table>
+
+    <div class="footer">
+      <strong><%= company.legalName %></strong><br />
+      <%= company.addressLines.join(', ') %><br />
+      <%= company.email %> · <%= company.phone %><br />
+      <% if (!company.missing.registrationNumber) { %>Company registration <%= company.registrationNumber %><br /><% } %>
+      <% if (!company.missing.taxNumber) { %>Tax registration <%= company.taxNumber %><br /><% } %>
+      Prices in <%= order.currency %>, including <%= store.taxLabel %>.
+      <% if (order.ott_reference) { %><br />Payment reference <span style="font-family:'Courier New',monospace"><%= order.ott_reference %></span><% } %>
+      <%
+        /*
+         * The stamp states what the document actually shows. A receipt marked
+         * PAID above a line saying the whole order was refunded is the kind of
+         * contradiction that costs an hour on the phone, and it is the sort of
+         * thing a reviewer notices.
+         */
+        const fullyRefunded = order.refunded_cents > 0 && order.refunded_cents >= order.total_cents;
+        const partlyRefunded = order.refunded_cents > 0 && !fullyRefunded;
+        const stamp = fullyRefunded ? 'Refunded' : partlyRefunded ? 'Partly refunded' : order.paid_at ? 'Paid' : 'Unpaid';
+      %>
+      <div class="stamp"><%= stamp %></div>
+      <div style="margin-top:12px;font-size:10px;color:#8a978f">Printed <%= printedAt %> (UTC)</div>
+    </div>
+  </div>
+</body>
+</html>

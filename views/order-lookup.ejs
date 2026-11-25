@@ -8,8 +8,13 @@
   <span class="eyebrow">Order lookup</span>
   <h1 style="margin:14px 0 18px">Find your order</h1>
   <p class="lede">
-    Enter the order number from your confirmation email. Add the email address you ordered with
-    to reveal the full delivery address.
+    <% if (mailEnabled) { %>
+      Enter the order number from your confirmation email. Add the email address you ordered with
+      to reveal the full delivery address.
+    <% } else { %>
+      Enter the order number shown when you placed the order. Add the email address you ordered with
+      to reveal the full delivery address.
+    <% } %>
   </p>
 
   <form class="panel" data-order-lookup style="margin-top:36px" novalidate>
@@ -17,7 +22,7 @@
       <div class="field">
         <label for="orderNumber">Order number</label>
         <input class="input" type="text" id="orderNumber" name="orderNumber" placeholder="CY-20260214-0001" required />
-        <span class="hint">It looks like CY-YYYYMMDD-0001 and is in your confirmation email.</span>
+        <span class="hint">It looks like CY-YYYYMMDD-0001<%= mailEnabled ? ' and is in your confirmation email' : '' %>.</span>
       </div>
       <div class="field">
         <label for="email">Email <span class="hint">(optional)</span></label>

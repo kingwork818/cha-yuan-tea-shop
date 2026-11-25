@@ -31,8 +31,8 @@
       <h3 style="margin-bottom:14px">The contract</h3>
       <div class="stack-12">
         <p>By placing an order you make an offer to buy the goods at the price shown. A contract is formed when we
-          confirm the order by email, not when the payment is authorised. If a product is mispriced or has sold out
-          we may decline the order and refund you in full.</p>
+          accept the order<%= mailEnabled ? ', which we confirm by email' : '' %>, not when the payment is authorised.
+          If a product is mispriced or has sold out we may decline the order and refund you in full.</p>
         <p>All prices are in <%= store.currency %>. <%= store.taxLabel %> and shipping are calculated at checkout and
           shown before you pay. Nothing is added after you press pay.</p>
         <p>We may update these terms; the version in force is the one published when you place your order, and the

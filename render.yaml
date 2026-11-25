@@ -167,3 +167,38 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+
+      # A second, read-only login, for people who need to look rather than act:
+      # an acquirer reviewing the shop before enabling card payments, an
+      # accountant, a developer. It can read every back-office page and change
+      # nothing, so the owner's own password never has to be handed to a stranger
+      # — and it can be revoked on its own. Leave both blank for no such account.
+      - key: REVIEWER_EMAIL
+        sync: false
+      - key: REVIEWER_PASSWORD
+        sync: false
+
+      # ------------------------------------------------------------- email
+      # Order receipts, refund notices and dispatch notices. Without these the
+      # shop sends nothing — and every page that mentions a receipt says so
+      # honestly rather than promising one it cannot send.
+      #
+      # Fastmail: host smtp.fastmail.com, port 465, user is the mailbox, and the
+      # password must be an app password (Settings → Privacy & Security → App
+      # passwords). The account password does not work for SMTP and cannot be
+      # revoked on its own.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      # Replies to a receipt must reach a human, not a noreply address.
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: Bridgeport Global

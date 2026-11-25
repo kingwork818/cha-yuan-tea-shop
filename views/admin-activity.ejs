@@ -1,0 +1,60 @@
+<div class="admin-head">
+  <div>
+    <span class="eyebrow">Security</span>
+    <h1 style="font-size:clamp(1.7rem,3vw,2.3rem);margin-top:10px">Activity log</h1>
+    <p class="small faint" style="margin-top:8px">
+      Every action taken in the back office, by whom, and from where.
+    </p>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat">
+    <div class="k">Recorded actions</div>
+    <div class="v"><%= summary.total %></div>
+    <div class="sub"><%= summary.week %> in the last 7 days</div>
+  </div>
+  <div class="stat">
+    <div class="k">Sign-ins (7 days)</div>
+    <div class="v"><%= summary.signIns %></div>
+    <div class="sub">successful</div>
+  </div>
+  <div class="stat">
+    <div class="k">Failed sign-ins</div>
+    <div class="v"><%= summary.failedSignIns %></div>
+    <div class="sub">last 7 days, by IP</div>
+  </div>
+  <div class="stat">
+    <div class="k">Refunds issued</div>
+    <div class="v"><%= summary.refunds %></div>
+    <div class="sub">all time</div>
+  </div>
+</div>
+
+<div class="admin-card">
+  <h3>Log</h3>
+  <% if (!actions.length) { %>
+    <p class="muted small">Nothing recorded yet.</p>
+  <% } else { %>
+    <table class="table">
+      <thead><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
+      <tbody>
+        <% actions.forEach(a => { %>
+          <tr>
+            <td class="tiny faint nowrap"><%= a.created_at %></td>
+            <td class="tiny"><%= a.actor %><div class="tiny faint"><%= a.role %></div></td>
+            <td class="tiny mono"><%= a.action %></td>
+            <td class="tiny mono"><%= a.target || '—' %></td>
+            <td class="tiny"><%= a.detail || '' %></td>
+            <td class="tiny mono faint"><%= a.ip || '—' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<p class="tiny faint" style="margin-top:16px">
+  Failed sign-ins are recorded without the password, and the log is append-only from the application's side:
+  there is no page that edits or deletes an entry.
+</p>

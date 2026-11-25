@@ -266,7 +266,11 @@
 
           <p class="tiny faint center" style="margin-top:14px">
             By placing this order you agree to our <a class="link-underline" href="/terms">terms</a>.
-            You will receive an email receipt immediately.
+            <% if (mailEnabled) { %>
+              You will receive an email receipt immediately.
+            <% } else { %>
+              Your order number is shown on the next screen — make a note of it, it is how you track the order.
+            <% } %>
           </p>
 
           <p class="tiny faint center" style="margin-top:10px">

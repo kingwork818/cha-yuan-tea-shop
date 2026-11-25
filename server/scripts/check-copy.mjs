@@ -238,6 +238,57 @@ console.log('\n  Editorial copy (including what no view renders yet)\n');
  * Input placeholders (`you@example.com`) are attributes and are stripped with the
  * markup before this runs, which is why they are not listed here.
  */
+/* ------------------------------------------------- no unsendable promises */
+/*
+ * The shop must not promise an email it cannot send.
+ *
+ * This is the rule that would have caught the worst bug on this site: five pages
+ * told customers a receipt was on its way — the checkout said "you will receive an
+ * email receipt immediately" — while the application had no mail code at all. It
+ * was invisible to every other check, because a false promise renders perfectly.
+ *
+ * So the copy and the configuration are compared: with mail configured the
+ * receipt wording is expected, and without it every one of those phrases has to be
+ * gone. Sellers of the "has it been sent" claim are checked together, so a future
+ * edit that re-adds one phrase fails here rather than in a customer's inbox.
+ */
+console.log('\n  Email promises match the mail configuration\n');
+{
+  const { default: config } = await import('../config.mjs');
+  const mailReady = config.mail.enabled;
+
+  const promises = [
+    { page: '/checkout', pattern: /email receipt/i, what: 'promises an email receipt' },
+    { page: '/order', pattern: /confirmation email/i, what: 'refers to a confirmation email' },
+    { page: '/terms', pattern: /confirm the order by email/i, what: 'says the order is confirmed by email' },
+    { page: '/contact', pattern: /in the confirmation email/i, what: 'says the order number is in an email' },
+  ];
+
+  const broken = [];
+  for (const promise of promises) {
+    let text = '';
+    try {
+      const res = await fetch(`${BASE}${promise.page}`);
+      text = (await res.text()).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    } catch {
+      continue;
+    }
+    const present = promise.pattern.test(text);
+    if (!mailReady && present) broken.push(`${promise.page} ${promise.what}, but mail is not configured`);
+    if (mailReady && !present && promise.page === '/checkout') {
+      broken.push(`${promise.page} does not mention the receipt email, but mail is configured`);
+    }
+  }
+
+  if (broken.length) {
+    problems += broken.length;
+    console.log(`  \u001b[31mFAIL\u001b[0m  ${broken.length} promise(s) the shop cannot keep:`);
+    for (const b of broken) console.log(`          ${b}`);
+  } else {
+    console.log(`  \u001b[32mPASS\u001b[0m  ${mailReady ? 'mail is configured and the receipt copy is present' : 'mail is off and no page promises an email'}`);
+  }
+}
+
 console.log('\n  Published email addresses\n');
 {
   const { default: config } = await import('../config.mjs');

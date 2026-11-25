@@ -187,6 +187,71 @@ CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+/*
+ * Every action a member of staff takes in the back office.
+ *
+ * Written for two audiences. The acquirer reviewing this shop wants to see that
+ * refunds and status changes are attributable — "who refunded this order, and
+ * when" should never be a guess. And the audit trail is what makes handing a
+ * read-only account to a stranger safe: the log says which login did what.
+ *
+ * The actor is the email from the session, not a foreign key: the accounts live
+ * in environment variables, so a row must stay readable after a login is removed.
+ */
+CREATE TABLE IF NOT EXISTS admin_actions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor       TEXT NOT NULL DEFAULT '',
+  role        TEXT NOT NULL DEFAULT '',        -- admin | reviewer
+  action      TEXT NOT NULL,                   -- sign-in, order.status, order.refund, stock.update
+  target      TEXT NOT NULL DEFAULT '',        -- order number, variant id
+  detail      TEXT NOT NULL DEFAULT '',
+  ip          TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_admin_actions_created ON admin_actions(created_at);
+
+/*
+ * Outgoing mail, one row per attempt.
+ *
+ * A sent receipt that silently failed to send is indistinguishable from one that
+ * was never sent, and both look like a shop that takes money and says nothing.
+ * Keeping the attempt — with the provider's error — means the admin page can
+ * answer "did this customer actually get their receipt?" without reading logs.
+ */
+CREATE TABLE IF NOT EXISTS mail_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind         TEXT NOT NULL,                  -- order.receipt | order.refund | order.shipped | test
+  recipient    TEXT NOT NULL DEFAULT '',
+  subject      TEXT NOT NULL DEFAULT '',
+  order_number TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL DEFAULT 'pending',-- sent | failed | skipped
+  error        TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mail_log_created ON mail_log(created_at);
+
+/*
+ * Live back-office sessions.
+ *
+ * The cookie is signed, which proves it was issued by this server, but on its own
+ * it stays valid until it expires — so signing out would only clear the browser's
+ * copy while the token itself still worked. That is not good enough once a
+ * read-only account is handed to an outside reviewer: revoking access has to mean
+ * revoked, immediately, without waiting for a token to age out or changing the
+ * owner's own password.
+ *
+ * One row per sign-in; sign-out and revocation stamp revoked_at.
+ */
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  sid         TEXT PRIMARY KEY,
+  email       TEXT NOT NULL DEFAULT '',
+  role        TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at  TEXT NOT NULL,
+  revoked_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_email ON admin_sessions(email);
 `;
 
 /**
@@ -197,6 +262,12 @@ CREATE TABLE IF NOT EXISTS settings (
  */
 const ADDED_COLUMNS = [
   { table: 'products', column: 'seal', definition: "TEXT NOT NULL DEFAULT ''" },
+  // Tracking, kept with the order rather than only in a free-text note: the
+  // dispatch email has to name a real number, and a customer asking "where is it"
+  // should be answerable from the order page without reading three notes.
+  { table: 'orders', column: 'tracking_number', definition: "TEXT NOT NULL DEFAULT ''" },
+  { table: 'orders', column: 'tracking_carrier', definition: "TEXT NOT NULL DEFAULT ''" },
+  { table: 'orders', column: 'shipped_at', definition: 'TEXT' },
   // How this product's image came to exist. 'photo' is a real photograph under a
   // commercial-use licence; 'illustration' is house-drawn artwork standing in
   // until the piece can be photographed. The storefront must say which, so the

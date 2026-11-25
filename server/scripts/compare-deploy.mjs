@@ -8,7 +8,7 @@
  *   node server/scripts/compare-deploy.mjs https://cha-yuan-tea-shop.onrender.com
  */
 const REMOTE = (process.argv[2] || '').replace(/\/+$/, '');
-const LOCAL = (process.argv[3] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const LOCAL = (process.argv[3] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 if (!REMOTE) {
   console.error('usage: node server/scripts/compare-deploy.mjs <remoteBaseUrl> [localBaseUrl]');

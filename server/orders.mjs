@@ -221,7 +221,7 @@ export function getOrderByReference(reference) {
   return attempt ? getOrderById(attempt.order_id) : null;
 }
 
-export function listOrders({ limit = 100, offset = 0, status = '', search = '' } = {}) {
+export function listOrders({ limit = 100, offset = 0, status = '', search = '', from = '', to = '' } = {}) {
   const where = [];
   const params = [];
   if (status) {
@@ -233,11 +233,27 @@ export function listOrders({ limit = 100, offset = 0, status = '', search = '' }
     const like = `%${search}%`;
     params.push(like, like, like, like);
   }
+  /*
+   * Dates filter on when the order was placed, not when it was last touched. A
+   * reconciliation asks "what did we sell in February", and applying a status
+   * change in March must not move a February order into March's figures.
+   *
+   * Both bounds are date() comparisons rather than a bare string compare: a bare
+   * `<= '2026-02-28'` is midnight, and silently drops everything placed that day.
+   */
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    where.push('date(created_at) >= date(?)');
+    params.push(from);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    where.push('date(created_at) <= date(?)');
+    params.push(to);
+  }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const rows = all(
     `SELECT * FROM orders ${clause} ORDER BY id DESC LIMIT ? OFFSET ?`,
     ...params,
-    Math.min(500, Number(limit) || 100),
+    Math.min(5000, Number(limit) || 100),
     Number(offset) || 0,
   );
   const total = get(`SELECT COUNT(*) AS n FROM orders ${clause}`, ...params);
@@ -380,12 +396,29 @@ export function recordRefund({ orderId, refundId, oriPaymentId, amountCents, sta
 
 const ORDER_STATUSES = ['pending', 'awaiting_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'];
 
-export function updateOrderStatus(orderId, status, adminNote = null) {
+export function updateOrderStatus(orderId, status, adminNote = null, { trackingNumber = '', trackingCarrier = '' } = {}) {
   if (!ORDER_STATUSES.includes(status)) throw new Error(`Unknown order status: ${status}`);
+  /*
+   * shipped_at is stamped once. Re-saving an already-shipped order (to correct a
+   * note, say) must not move the dispatch date, because the dispatch date is what
+   * the delivery estimate and any late-delivery complaint are measured from.
+   */
   run(
-    `UPDATE orders SET status = ?, admin_note = COALESCE(?, admin_note), updated_at = datetime('now') WHERE id = ?`,
+    `UPDATE orders
+        SET status = ?,
+            admin_note = COALESCE(?, admin_note),
+            tracking_number = CASE WHEN ? <> '' THEN ? ELSE tracking_number END,
+            tracking_carrier = CASE WHEN ? <> '' THEN ? ELSE tracking_carrier END,
+            shipped_at = CASE WHEN ? = 'shipped' THEN COALESCE(shipped_at, datetime('now')) ELSE shipped_at END,
+            updated_at = datetime('now')
+      WHERE id = ?`,
     status,
     adminNote,
+    trackingNumber,
+    trackingNumber,
+    trackingCarrier,
+    trackingCarrier,
+    status,
     Number(orderId),
   );
   return getOrderById(orderId);

@@ -2,7 +2,7 @@
   <div class="challenge-card">
     <img src="<%= asset('/img/logo.svg') %>" alt="<%= store.name %>" style="height:84px;margin:0 auto" />
     <span class="eyebrow" style="display:block;margin-top:20px">Back office</span>
-    <h1 style="margin-top:12px;font-size:1.5rem">Sign in</h1>
+    <h1 style="margin-top:12px;font-size:1.5rem">Staff sign in</h1>
 
     <% if (error) { %>
       <div class="alert alert-error" style="margin-top:22px;text-align:left"><%= error %></div>
@@ -24,8 +24,8 @@
     </form>
 
     <p class="tiny faint" style="margin-top:22px">
-      Credentials are set by <span class="mono">ADMIN_EMAIL</span> and <span class="mono">ADMIN_PASSWORD</span>
-      in your <span class="mono">.env</span> file. Change them before going live.
+      Access is by invitation for staff and, on request, for partners reviewing the account. Sessions expire after
+      12 hours.
     </p>
   </div>
 </div>

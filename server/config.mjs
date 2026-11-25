@@ -168,6 +168,57 @@ function buildWhatsApp() {
   };
 }
 
+/**
+ * Outgoing mail settings, and the one place that decides whether mail exists.
+ *
+ * `enabled` is all-or-nothing on purpose. Every page that says "we will email
+ * you" asks this object first, so a deployment without SMTP credentials shows
+ * honest copy instead of a promise it cannot keep — the failure mode of a
+ * half-configured mailer is silence, and silence is what customers complain
+ * about. See sendOrderReceipt in server/mail.mjs.
+ */
+function buildMail() {
+  const host = str('SMTP_HOST').trim();
+  const user = str('SMTP_USER').trim();
+  const pass = str('SMTP_PASS').trim();
+  // 465 is implicit TLS, 587 is STARTTLS. Providers differ and both are common,
+  // so the port is not guessed from the host.
+  const port = num('SMTP_PORT', 465);
+  const secure = bool('SMTP_SECURE', port === 465);
+  const name = str('STORE_NAME', 'Bridgeport Global');
+  const address = str('MAIL_FROM_ADDRESS', str('COMPANY_EMAIL', COMPANY_DEFAULTS.email)).trim();
+  const fromName = str('MAIL_FROM_NAME', name).trim();
+  // Replies must reach a human, not a noreply black hole: a receipt that cannot
+  // be replied to is the first thing a customer tries.
+  const replyTo = str('MAIL_REPLY_TO', str('COMPANY_EMAIL', COMPANY_DEFAULTS.email)).trim();
+
+  return {
+    host,
+    port,
+    secure,
+    user,
+    pass,
+    fromAddress: address,
+    fromName,
+    from: fromName ? `${fromName} <${address}>` : address,
+    replyTo,
+    /** Only true when a connection could actually be made and authenticated. */
+    get enabled() {
+      return host !== '' && user !== '' && pass !== '' && address.includes('@');
+    },
+    /** Why mail is off, for the admin settings page. */
+    get reason() {
+      if (this.enabled) return '';
+      const missing = [];
+      if (!host) missing.push('SMTP_HOST');
+      if (!user) missing.push('SMTP_USER');
+      if (!pass) missing.push('SMTP_PASS');
+      if (!address.includes('@')) missing.push('MAIL_FROM_ADDRESS');
+      return missing.join(', ');
+    },
+  };
+}
+
 const ottBaseUrl =
   paymentMode === 'live'
     ? str('OTT_LIVE_BASE_URL', 'https://ecom-api.ottpay.com')
@@ -308,7 +359,43 @@ const config = {
   admin: {
     email: str('ADMIN_EMAIL', 'owner@bridgeportglobalinc.test').toLowerCase(),
     password: str('ADMIN_PASSWORD', 'changeme-please'),
+    /*
+     * A second login for people who need to *look* rather than act — an acquirer
+     * reviewing the shop before enabling card payments, an accountant checking a
+     * month of orders, a developer debugging a stuck payment.
+     *
+     * It exists so the owner's own password never has to be handed to a stranger.
+     * Handing it over would also hand over refunds, stock edits and order status
+     * changes, and there would be no way to tell afterwards who did what. This
+     * credential can read every page and change nothing; `staff` below decides.
+     *
+     * Unset by default. Both fields must be present for the account to exist, and
+     * the password must not be a published placeholder.
+     */
+    reviewerEmail: str('REVIEWER_EMAIL', '').trim().toLowerCase(),
+    reviewerPassword: str('REVIEWER_PASSWORD', '').trim(),
+    get reviewerEnabled() {
+      return this.reviewerEmail !== ''
+        && this.reviewerPassword !== ''
+        && !isPlaceholder(this.reviewerPassword, PUBLIC_DEFAULTS.adminPassword);
+    },
   },
+
+  /*
+   * Outgoing mail.
+   *
+   * The shop promises a receipt on the checkout page and refers customers to
+   * "your confirmation email" in three more places, so silence here is not a
+   * missing feature — it is a broken promise at the exact moment money changes
+   * hands. Mail is therefore off unless it is fully configured: a half-configured
+   * mailer that fails silently would be worse than none, because the site would
+   * keep claiming receipts were sent.
+   *
+   * Fastmail (any provider works): SMTP_HOST=smtp.fastmail.com, SMTP_PORT=465,
+   * SMTP_USER=the mailbox, SMTP_PASS=an app password — not the account password,
+   * which does not work for SMTP and cannot be revoked on its own.
+   */
+  mail: buildMail(),
 
   databaseFile: path.isAbsolute(str('DATABASE_FILE', './data/shop.db'))
     ? str('DATABASE_FILE', './data/shop.db')

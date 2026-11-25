@@ -8,7 +8,7 @@
  * visible instead of something you have to squint at a screenshot to check.
  */
 const path = process.argv[2] || '/';
-const BASE = (process.argv[3] || 'http://127.0.0.1:3080').replace(/\/+$/, '');
+const BASE = (process.argv[3] || process.env.BASE_URL || 'http://127.0.0.1:3080').replace(/\/+$/, '');
 
 const html = await (await fetch(`${BASE}${path}`)).text();
 
