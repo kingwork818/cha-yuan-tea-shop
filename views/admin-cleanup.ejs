@@ -3,13 +3,14 @@
     <a class="small faint link-underline" href="/admin/orders">← All orders</a>
     <h1 style="font-size:clamp(1.7rem,3vw,2.3rem);margin-top:12px">Test orders</h1>
     <p class="small faint" style="margin-top:8px">
-      Orders that look like they were placed by a test rather than a customer. Archiving hides an order from the
-      lists, the figures and the exports without destroying it.
+      Every live order, so anything left over from testing can be put out of the way before someone reviews the
+      account. Archiving hides an order from the lists, the figures and the exports without destroying it.
     </p>
   </div>
   <div class="row" style="gap:10px;flex-wrap:wrap">
-    <span class="status-pill status-<%= stats.archived ? 'awaiting_payment' : 'paid' %>"><%= stats.archived %> archived</span>
     <span class="status-pill status-paid"><%= stats.total %> live</span>
+    <span class="status-pill status-<%= flagged ? 'awaiting_payment' : 'paid' %>"><%= flagged %> look like tests</span>
+    <span class="status-pill status-<%= stats.archived ? 'awaiting_payment' : 'paid' %>"><%= stats.archived %> archived</span>
   </div>
 </div>
 
@@ -27,11 +28,18 @@
 
 <div class="admin-card">
   <div class="row-between" style="margin-bottom:16px">
-    <h3 style="margin:0">Looks like test data (<%= candidates.length %>)</h3>
+    <h3 style="margin:0">Live orders (<%= candidates.length %>)</h3>
+    <% if (candidates.length) { %>
+      <label class="tiny faint" style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" id="select-all" /> select all
+      </label>
+    <% } %>
   </div>
 
   <% if (!candidates.length) { %>
-    <p class="muted small">Nothing in the order list matches a test signature.</p>
+    <p class="muted small">
+      There are no live orders, so there is nothing to tidy. Orders appear here as soon as they are placed.
+    </p>
   <% } else { %>
     <form method="post" action="/admin/orders/archive">
       <table class="table">
@@ -39,31 +47,41 @@
           <tr>
             <th style="width:34px"></th>
             <th style="width:150px">Order</th>
-            <th style="width:230px">Customer</th>
+            <th style="width:220px">Customer</th>
             <th style="width:150px">Placed</th>
             <th style="width:120px">Payment</th>
             <th class="num" style="width:100px">Total</th>
-            <th style="min-width:280px">Why it matched</th>
+            <th style="min-width:260px">Why it looks like a test</th>
           </tr>
         </thead>
         <tbody>
           <% candidates.forEach(o => { %>
             <tr>
-              <td><input type="checkbox" name="ids" value="<%= o.id %>" checked /></td>
-              <td class="mono tiny"><a class="link-underline" href="/admin/orders/<%= o.order_number %>"><%= o.order_number %></a></td>
+              <td><input type="checkbox" name="ids" value="<%= o.id %>" class="row-check" <%= o.reasons.length ? 'checked' : '' %> /></td>
+              <td class="mono tiny">
+                <a class="link-underline" href="/admin/orders/<%= o.order_number %>"><%= o.order_number %></a>
+                <% if (o.ott_payment_id) { %><div class="faint" style="margin-top:4px">has payment id</div><% } %>
+              </td>
               <td class="tiny"><%= o.customer_name %><div class="faint"><%= o.customer_email %></div></td>
               <td class="tiny faint nowrap"><%= o.created_at %></td>
               <td class="tiny"><span class="status-pill status-<%= o.payment_status %>"><%= o.payment_status.replace(/_/g, ' ') %></span></td>
               <td class="num tiny"><%= money(o.total_cents) %></td>
-              <td class="tiny faint"><%= o.reasons.join(' · ') %></td>
+              <td class="tiny">
+                <% if (o.reasons.length) { %>
+                  <span class="faint"><%= o.reasons.join(' · ') %></span>
+                <% } else { %>
+                  <span class="faint">no signature — tick it yourself if it is a test</span>
+                <% } %>
+              </td>
             </tr>
           <% }) %>
         </tbody>
       </table>
 
       <p class="tiny faint" style="margin:16px 0">
-        An order carrying a gateway payment id is refused: that is a record with money behind it, and it has to be
-        refunded or cancelled through its own page rather than hidden.
+        Rows that look like tests are ticked for you; nothing is archived until you submit. An order carrying a
+        gateway payment id is refused unless you tick the override below — that is a record with money behind it,
+        and it has to be refunded or cancelled through its own page rather than hidden.
       </p>
 
       <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
@@ -80,7 +98,9 @@
 <div class="admin-card">
   <div class="row-between" style="margin-bottom:16px">
     <h3 style="margin:0">Archived (<%= archived.length %>)</h3>
-    <a class="btn btn-sm btn-ghost" href="/admin/orders?archived=only">See them in the order list</a>
+    <% if (archived.length) { %>
+      <a class="btn btn-sm btn-ghost" href="/admin/orders?archived=only">See them in the order list</a>
+    <% } %>
   </div>
 
   <% if (!archived.length) { %>
@@ -106,22 +126,21 @@
 
     <hr class="rule" style="margin:26px 0" />
 
-    <form method="post" action="/admin/orders/purge" onsubmit="return confirm('Permanently delete the selected archived orders? This cannot be undone.')">
+    <form method="post" action="/admin/orders/purge" onsubmit="return confirm('Permanently delete the archived orders? This cannot be undone.')">
       <h3 style="margin-bottom:10px">Delete permanently</h3>
       <p class="small" style="color:var(--warn);margin-bottom:14px">
         Deletes the order and its items, payment attempts and refunds. Only archived orders can be deleted, and this
-        cannot be undone. Leave every box unticked to purge all archived orders.
+        cannot be undone.
       </p>
       <div class="row" style="gap:12px;flex-wrap:wrap;align-items:flex-end">
         <div class="field" style="min-width:200px">
           <label for="confirm">Type DELETE to confirm</label>
-          <input class="input" type="text" id="confirm" name="confirm" placeholder="DELETE" autocomplete="off" />
+          <input class="input" type="text" id="confirm" name="confirm" placeholder="DELETE" autocomplete="off" required />
         </div>
-        <button class="btn btn-sm" type="submit" style="color:var(--danger);border-color:var(--danger)">Delete archived orders</button>
+        <button class="btn btn-sm" type="submit" style="color:var(--danger);border-color:var(--danger)">Delete all archived orders</button>
       </div>
       <p class="tiny faint" style="margin-top:12px">
-        To delete specific ones, tick them above and submit this form instead — the two forms are separate so a
-        mis-click cannot do both.
+        To restore or delete specific ones, tick them in the list above and use that list's button.
       </p>
     </form>
   <% } %>
@@ -131,3 +150,15 @@
   Every archive, restore and purge is recorded in the <a class="link-underline" href="/admin/activity">activity log</a>
   with the account that did it.
 </p>
+
+<script>
+  /* Select-all for the archive table. Kept tiny and local: one checkbox, no framework. */
+  (function () {
+    var all = document.getElementById('select-all');
+    if (!all) return;
+    var boxes = document.querySelectorAll('.row-check');
+    all.addEventListener('change', function () {
+      boxes.forEach(function (box) { box.checked = all.checked; });
+    });
+  })();
+</script>

@@ -307,23 +307,36 @@ const TEST_SIGNATURES = [
   { why: 'smoke-test name', sql: "customer_name LIKE 'Smoke Tester%'" },
   { why: 'demo fixture name', sql: "customer_name LIKE 'Review %'" },
   { why: 'marked as a test in the note', sql: "(customer_note LIKE '%smoke test%' OR customer_note LIKE '%access check%')" },
+  { why: 'no telephone number', sql: "(customer_phone IS NULL OR customer_phone = '')" },
 ];
 
-export function testOrderCandidates(limit = 500) {
-  const condition = TEST_SIGNATURES.map((s) => s.sql).join(' OR ');
+/** The reasons one order matches, if any. Used to pre-tick a row, nothing more. */
+export function testReasons(orderId) {
+  return TEST_SIGNATURES
+    .filter((s) => Boolean(get(`SELECT 1 AS hit FROM orders WHERE id = ? AND (${s.sql})`, Number(orderId))))
+    .map((s) => s.why);
+}
+
+/**
+ * Every order that can be archived, with any test signature already noted.
+ *
+ * The page shows *all* live orders, not only the ones matching a signature. The
+ * first version listed matches only, which read as a broken page the moment the
+ * database held orders that did not match — a merchant with nine test orders and
+ * an empty table has no way to act. The signature now decides what is pre-ticked,
+ * and the person decides the rest.
+ */
+export function archiveCandidates(limit = 500) {
   const rows = all(
-    `SELECT * FROM orders WHERE archived_at IS NULL AND (${condition}) ORDER BY id DESC LIMIT ?`,
+    'SELECT * FROM orders WHERE archived_at IS NULL ORDER BY id DESC LIMIT ?',
     Math.min(2000, Number(limit) || 500),
   );
-  return rows.map((row) => ({
-    ...row,
-    reasons: TEST_SIGNATURES
-      .filter((s) => {
-        const probe = get(`SELECT 1 AS hit FROM orders WHERE id = ? AND (${s.sql})`, row.id);
-        return Boolean(probe);
-      })
-      .map((s) => s.why),
-  }));
+  return rows.map((row) => ({ ...row, reasons: testReasons(row.id) }));
+}
+
+/** Only the rows matching a test signature. Kept for the summary count. */
+export function testOrderCandidates(limit = 500) {
+  return archiveCandidates(limit).filter((row) => row.reasons.length > 0);
 }
 
 /**

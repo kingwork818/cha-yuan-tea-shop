@@ -147,7 +147,13 @@ const post = (p, cookie, form) =>
  * SQLite would miss the pricing, the CSRF gate and the mock gateway, and the test
  * would then be asserting against a shape the application never actually produces.
  */
-async function placeOrder() {
+async function placeOrder(customer = {}) {
+  const {
+    email = 'buyer@example.com',
+    name = 'Ada Lovelace',
+    phone = '+1 416 555 0100',
+    note = 'Admin access check.',
+  } = customer;
   const productRes = await fetch(`${BASE}/api/products/tieguanyin-iron-goddess`);
   const payload = await productRes.json();
   // The API answers with the product at the top level, not wrapped in `data`.
@@ -172,9 +178,9 @@ async function placeOrder() {
       cookie: `cy_csrf=${csrf}`,
     },
     body: JSON.stringify({
-      email: 'buyer@example.com',
-      name: 'Ada Lovelace',
-      phone: '+1 416 555 0100',
+      email,
+      name,
+      phone,
       address: '1123 Leslie Street',
       address2: '',
       city: 'Toronto',
@@ -182,7 +188,7 @@ async function placeOrder() {
       postalCode: 'M3C 2K5',
       country: 'CA',
       shippingMethod: 'standard',
-      note: 'Admin access check.',
+      note,
       items: [{ variantId, quantity: 1 }],
       cardNumber: '5454545454545454',
       cardHolder: 'Ada Lovelace',
@@ -427,6 +433,35 @@ for (const p of ['/', '/shop', '/checkout', '/order', '/robots.txt', '/sitemap.x
     check('a restored order is back in the list', rowLink(afterRestore, placed));
   } else {
     check('there is a test order to archive', false, `placed=${placed} target=${targetId}`);
+  }
+
+  /*
+   * The page must list orders that do *not* look like tests as well. The first
+   * version showed only signature matches, which read as an empty page the moment
+   * the shop's orders looked ordinary — a merchant with nine test orders and
+   * nothing in the table has no way to act.
+   */
+  const ordinary = await placeOrder({
+    email: 'margaret.hale@northumberlandmail.ca',
+    name: 'Margaret Hale',
+    phone: '+1 905 555 0182',
+    note: 'Please leave with the concierge.',
+  });
+  check('an ordinary-looking order can be placed', Boolean(ordinary), String(ordinary));
+
+  const cleanupAll = await (await page('/admin/orders/cleanup', owner2.cookie)).text();
+  check('the page lists every live order', cleanupAll.includes(ordinary || 'never'), 'ordinary order missing from the list');
+  check('an order with no signature is labelled as such', /no signature/.test(cleanupAll));
+
+  const ordinaryRow = cleanupAll.split('<tr').find((row) => row.includes(ordinary || 'never')) || '';
+  check('a no-signature order is not pre-ticked', ordinaryRow !== '' && !/checked/.test(ordinaryRow), ordinaryRow.slice(0, 160));
+
+  const ordinaryId = ordinaryRow.match(/name="ids" value="(\d+)"/)?.[1];
+  if (ordinaryId) {
+    const archivedOrdinary = await post('/admin/orders/archive', owner2.cookie, { ids: ordinaryId });
+    check('a no-signature order can still be archived deliberately',
+      (archivedOrdinary.headers.get('location') || '').includes('result=archived'),
+      archivedOrdinary.headers.get('location') || '');
   }
 }
 
