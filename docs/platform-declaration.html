@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Website platform and hosting declaration — Bridgeport Global Inc.</title>
+<!--
+  Print-ready copy of docs/platform-declaration.md.
+
+  Open in a browser and use Print → Save as PDF to send to an acquirer. Kept as a
+  standalone file with no external assets so it prints identically offline and
+  nothing is fetched from the storefront while a bank is reading it.
+-->
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 36px 28px; background: #fff; color: #16211b;
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 11.5px; line-height: 1.62;
+  }
+  .sheet { max-width: 780px; margin: 0 auto; }
+  header { border-bottom: 2px solid #16211b; padding-bottom: 14px; margin-bottom: 22px; }
+  h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 21px; margin: 0 0 10px; letter-spacing: .01em; }
+  .firm { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: #5c6a61; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 26px; margin-top: 12px; font-size: 11px; }
+  .facts span b { font-weight: 600; }
+  h2 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 26px 0 8px; padding-bottom: 5px; border-bottom: 1px solid #d9d5ca; color: #16211b; }
+  p { margin: 0 0 9px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; }
+  td { padding: 5px 8px 5px 0; vertical-align: top; border-bottom: 1px solid #eceae3; }
+  td:first-child { width: 34%; color: #5c6a61; }
+  ul, ol { margin: 0 0 10px 18px; padding: 0; }
+  li { margin-bottom: 5px; }
+  .note { background: #f6f4ee; border-left: 3px solid #b8934f; padding: 10px 12px; margin: 12px 0; font-size: 11px; }
+  .sign { margin-top: 30px; padding-top: 16px; border-top: 1px solid #d9d5ca; display: flex; gap: 40px; flex-wrap: wrap; font-size: 11px; color: #5c6a61; }
+  .sign div { flex: 1 1 220px; }
+  .line { border-bottom: 1px solid #16211b; height: 26px; margin-bottom: 4px; }
+  .toolbar { max-width: 780px; margin: 0 auto 14px; text-align: right; }
+  .toolbar button {
+    font: inherit; font-size: 11px; padding: 7px 14px; cursor: pointer;
+    background: #16211b; color: #fff; border: 1px solid #16211b; border-radius: 2px;
+  }
+  @media print {
+    body { padding: 0; font-size: 10.5px; }
+    .toolbar { display: none; }
+    h2 { page-break-after: avoid; }
+    table, ul, ol { page-break-inside: avoid; }
+    @page { margin: 16mm; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar"><button type="button" onclick="window.print()">Print / save as PDF</button></div>
+
+<div class="sheet">
+  <header>
+    <div class="firm">Bridgeport Global Inc.</div>
+    <h1>Website platform and hosting declaration</h1>
+    <div class="facts">
+      <span><b>Merchant:</b> Bridgeport Global Inc.</span>
+      <span><b>Website:</b> https://www.bridgeportglobalinc.com</span>
+      <span><b>Contact:</b> support@bridgeportglobalinc.com</span>
+      <span><b>Telephone:</b> +1 (942) 380-9665</span>
+    </div>
+  </header>
+
+  <p>This statement describes the technology behind the website named above, for the
+  acquiring bank's onboarding and risk review. It is accurate as at the date of
+  signature and will be reissued if the platform changes.</p>
+
+  <h2>1. Platform declaration</h2>
+  <p>The website is <b>not</b> built on a third-party e-commerce platform, CMS or
+  website builder. It is a <b>bespoke (custom-developed) online store</b>,
+  commissioned for and owned by the merchant.</p>
+  <table>
+    <tr><td>Platform / CMS</td><td><b>None.</b> Custom-built application. No Shopify, WooCommerce, WordPress, Wix, Squarespace or Magento</td></tr>
+    <tr><td>Application</td><td>Node.js 24, server-rendered templates (Express 4 + EJS)</td></tr>
+    <tr><td>Database</td><td>SQLite, on a persistent disk attached to the hosting service</td></tr>
+    <tr><td>Front end</td><td>Hand-written HTML, CSS and JavaScript. No client-side framework</td></tr>
+    <tr><td>Hosting provider</td><td><b>Render</b> (Render Services, Inc.) — managed platform, US-West region</td></tr>
+    <tr><td>DNS / CDN</td><td><b>Cloudflare, Inc.</b></td></tr>
+    <tr><td>TLS</td><td>Automatic certificate issuance and renewal; HTTPS enforced with HSTS</td></tr>
+    <tr><td>Source control</td><td>Private GitHub repository; every change versioned, deploys on push</td></tr>
+    <tr><td>Back office</td><td>Custom administrative console at <span style="font-family:'Courier New',monospace">/admin</span>, behind an authenticated session</td></tr>
+  </table>
+  <div class="note">
+    If a <b>platform provider</b> field is mandatory in your form, the correct entries are:
+    <br /><b>Platform type:</b> custom / bespoke development, no platform vendor ·
+    <b>Hosting provider:</b> Render · <b>DNS / CDN:</b> Cloudflare
+  </div>
+
+  <h2>2. Maintenance and responsibility</h2>
+  <p>The merchant owns the source code, the hosting account and the database. There is
+  no platform vendor, no app marketplace, and no third party with standing access to
+  customer data. Security patches and dependency updates are applied by the merchant
+  through the same versioned deployment process.</p>
+
+  <h2>3. Payment integration</h2>
+  <p>Card payments are integrated directly with the acquirer's own card gateway (local
+  card, 3-D Secure 2) — not through a third-party checkout overlay or hosted
+  storefront. For every transaction:</p>
+  <ol>
+    <li>The cardholder enters card details on the merchant's own checkout page over HTTPS.</li>
+    <li>The application validates the input (check digit, expiry, CVV length) and relays it to the acquirer's gateway over TLS for authorisation.</li>
+    <li>Where 3-D Secure 2 requires it, the cardholder completes the issuer's authentication challenge.</li>
+    <li>The result is received by callback and reconciled against the order.</li>
+  </ol>
+  <p><b>Card data is never stored.</b> Neither the database nor the application logs
+  contain a card number or CVV at any point; request bodies are redacted before
+  logging. The order record retains only the card brand, the last four digits, the
+  amount, the currency and the acquirer's payment and order identifiers — the minimum
+  required to reconcile a transaction, answer a customer query and issue a refund.</p>
+  <p>Because the card is captured on a page served by the merchant's own application
+  and relayed by it, this is a <b>direct-post integration</b>, and the merchant's PCI
+  DSS self-assessment category is <b>SAQ A-EP</b>. The website copy is aligned with
+  this and makes no SAQ A claim.</p>
+
+  <h2>4. Security controls</h2>
+  <ul>
+    <li>HTTPS end to end; HTTP redirects to HTTPS; HSTS enabled</li>
+    <li>Content Security Policy, X-Content-Type-Options, X-Frame-Options, Referrer-Policy and Permissions-Policy set on every response</li>
+    <li>No card data in the database, logs or error reports</li>
+    <li>Back-office login rate-limited to 8 attempts per 5 minutes per IP; sessions signed, server-side revocable, expiring after 12 hours</li>
+    <li>Every back-office action — refund, status change, stock change, export, sign-in, failed sign-in — recorded in an append-only audit trail with the account and source IP</li>
+    <li>Automated test suite on every deployment: access control, payment callback pipeline, mail delivery, and accuracy of published policy copy</li>
+    <li>Health-checked deployment with automatic restart; database on a persistent disk separate from the application container</li>
+  </ul>
+
+  <h2>5. Business and policy content</h2>
+  <table>
+    <tr><td>/contact</td><td>Registered entity, registered address, telephone, email, registration numbers</td></tr>
+    <tr><td>/terms</td><td>Terms of service, contract formation, pricing, liability</td></tr>
+    <tr><td>/privacy</td><td>Privacy policy: controller, lawful basis, retention, data subject rights</td></tr>
+    <tr><td>/shipping</td><td>Dispatch from the warehouse in China within 48 hours; 10–25 business days standard, 7–15 express</td></tr>
+    <tr><td>/refund</td><td>30-day returns, who pays return postage, returns address, refund timing to the original card</td></tr>
+    <tr><td>/checkout</td><td>Prices and settlement currency in CAD, Ontario HST 13%, card marks, 3-D Secure 2</td></tr>
+  </table>
+
+  <h2>6. Access for review</h2>
+  <p>A <b>read-only</b> back-office account can be issued for your review. It can open
+  every page — orders, order detail with payment references and refund history, the
+  gateway callback log, the email log, the audit trail and settings — and it cannot
+  change, refund or delete anything. Access is revoked immediately after the review,
+  on request.</p>
+
+  <h2>7. Outstanding items, stated openly</h2>
+  <ul>
+    <li>Company registration number and HST registration number are not yet entered; those pages display "to be supplied" rather than a fabricated number.</li>
+    <li>The card gateway is in test mode until credentials are issued; the back office displays "Test mode" while that remains true.</li>
+  </ul>
+  <p>Both will be updated as soon as the information is available, and this document
+  reissued with them included.</p>
+
+  <div class="sign">
+    <div>
+      <div class="line"></div>
+      For and on behalf of Bridgeport Global Inc.
+    </div>
+    <div>
+      <div class="line"></div>
+      Name and position
+    </div>
+    <div>
+      <div class="line"></div>
+      Date
+    </div>
+  </div>
+</div>
+</body>
+</html>
