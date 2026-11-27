@@ -111,10 +111,10 @@
         <p>3-D Secure 2 means your bank may ask you to confirm the payment — usually a code in your banking app, a
           text message, or a fingerprint. This is a security feature of the card scheme, not something we control,
           and it protects you against fraudulent use of your card.</p>
-        <p><strong class="gold">We never see or store your card number.</strong> The card details you type go
-          straight from your browser to the payment provider over TLS, and are never held on our servers. Our
-          database records only the card brand, the last four digits and the provider's transaction identifier, so
-          that we can reconcile an order or issue a refund.</p>
+        <p><strong class="gold">We never store your card number.</strong> Card details are entered on our checkout page
+          over TLS and relayed to the payment provider for authorisation; they are never written to our database or
+          our logs. Our database records only the card brand, the last four digits and the provider's transaction
+          identifier, so that we can reconcile an order or issue a refund.</p>
         <p>All prices are in <%= store.currency %> and include <%= store.taxLabel %> where applicable, calculated at
           checkout before you pay. We do not store your card for future purchases and there is no one-click
           re-order.</p>

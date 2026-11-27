@@ -1029,7 +1029,7 @@ export const EDITORIAL = {
     { icon: 'leaf', title: 'Direct from the grower', body: 'No middleman and no export blend. We know the mountain, the cultivar and the pick date.' },
     { icon: 'calendar', title: 'Dated by harvest', body: 'Every listing carries its season and processing method — a 2024 Dan Cong is not a 2022 one.' },
     { icon: 'gaiwan', title: 'Brewed before listed', body: 'Each tea is scored gongfu and Western style before it earns a place on this site.' },
-    { icon: 'shield', title: 'Secure card payment', body: '3-D Secure 2 authentication. Your card number never reaches our servers.' },
+    { icon: 'shield', title: 'Secure card payment', body: '3-D Secure 2 authentication. Your card number is never stored on our servers.' },
   ],
 
   /* The featured spotlight on the homepage. */
@@ -1127,7 +1127,7 @@ export const EDITORIAL = {
     },
     {
       q: 'Is my card safe?',
-      a: 'Your card details go straight from your browser to our payment provider over an encrypted connection and are never stored on our servers. We keep only the card brand and the last four digits so you can recognise the charge on your statement.',
+      a: 'Your card details are entered on our secure checkout and sent over an encrypted connection to our payment provider for authorisation. They are never stored on our servers — we keep only the card brand and the last four digits, so you can recognise the charge on your statement. 3-D Secure 2 means your bank may ask you to confirm the payment.',
     },
     {
       q: 'What if I do not like the tea?',

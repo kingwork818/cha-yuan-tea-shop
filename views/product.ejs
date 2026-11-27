@@ -232,9 +232,10 @@
               <p>We accept Visa, Mastercard, American Express, Discover, JCB, Diners Club and China UnionPay through
                 our payment provider's local card gateway, protected by 3-D Secure 2 authentication. Your bank may ask
                 you to confirm the payment in your banking app or with a one-time code.</p>
-              <p>Card details are entered on our checkout and transmitted directly to the payment provider over TLS.
-                They are never written to our database — we only keep the card brand and the last four digits so you
-                can recognise the charge on your statement. All prices are in <%= store.currency %>.</p>
+              <p>Card details are entered on our secure checkout and relayed to the payment provider over an
+                encrypted connection for authorisation. They are never written to our database or our logs — we keep
+                only the card brand and the last four digits, so you can recognise the charge on your statement. All
+                prices are in <%= store.currency %>.</p>
             </div>
           </div>
         </div>

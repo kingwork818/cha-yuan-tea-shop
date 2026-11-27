@@ -234,9 +234,21 @@
               <div class="secure-note">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
                 <span>
-                  Your card is sent directly to our payment provider over an encrypted connection for authorisation.
-                  We store only the card brand and last four digits. This site is PCI-DSS SAQ-A compliant:
-                  card data never reaches our database.
+                  <%
+                    /*
+                     * This block used to say the card was "sent directly to our
+                     * payment provider" and that the site was "PCI-DSS SAQ-A
+                     * compliant: card data never reaches our database". The first
+                     * half was false — the checkout posts to this application, which
+                     * relays the card to the gateway — so the SAQ-A claim that
+                     * depended on it was false too. Every acquirer tests exactly
+                     * this, and a false PCI declaration is the kind of thing that
+                     * ends an account. What is left is what the code does.
+                     */
+                  %>
+                  Card details are entered on this page over an encrypted connection and relayed to our PCI-DSS
+                  compliant payment provider for authorisation. They are never written to our database or our logs;
+                  what we keep is the card brand, the last four digits and the provider's own payment identifiers.
                 </span>
               </div>
             </div>

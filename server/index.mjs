@@ -2284,7 +2284,16 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, _next) => {
-  console.error('[error]', err);
+  /*
+   * A body-parser failure carries the raw request body on `err.body`, and this
+   * endpoint accepts card details. Logging the error object as-is would write a
+   * card number into the platform's log stream whenever a checkout submission was
+   * malformed — exactly the sort of quiet leak that turns a simple integration
+   * into a PCI incident. The body is replaced before anything is printed.
+   */
+  const safe = Object.assign(Object.create(Object.getPrototypeOf(err) || Object.prototype), err);
+  if (safe.body !== undefined) safe.body = '[redacted]';
+  console.error('[error]', safe);
   /*
    * A body the server could not even parse is the caller's fault, not ours, and
    * body-parser already said so: it throws with a 4xx `status`. Reporting those

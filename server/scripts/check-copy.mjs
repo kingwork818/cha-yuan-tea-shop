@@ -238,6 +238,53 @@ console.log('\n  Editorial copy (including what no view renders yet)\n');
  * Input placeholders (`you@example.com`) are attributes and are stripped with the
  * markup before this runs, which is why they are not listed here.
  */
+/* ------------------------------------------------- no false PCI claims */
+/*
+ * The site must not claim that card data never reaches it.
+ *
+ * It did, on five pages, and it was untrue: the checkout posts the card to this
+ * application, which validates it and relays it to the gateway. Every acquirer
+ * tests exactly that claim during onboarding, and a false PCI declaration is the
+ * kind of thing that ends a merchant account — so the wording is pinned here.
+ *
+ * What is true and allowed: card data is never *stored* here, only the brand and
+ * last four digits are kept. Claims about where the data is captured are checked
+ * because they are the ones a reviewer will test.
+ */
+console.log('\n  PCI and card-data claims\n');
+{
+  const FORBIDDEN = [
+    { pattern: /SAQ[-\s]?A\b/i, why: 'claims SAQ-A, which requires card data to be captured entirely by the provider' },
+    { pattern: /never (?:reach|reaches|touch|touches) our servers/i, why: 'card data does reach this application before it is relayed' },
+    { pattern: /not sent to us/i, why: 'the checkout posts card data to this application' },
+    { pattern: /never receive[^.]{0,20}card/i, why: 'the card is received by this application and relayed' },
+    { pattern: /go(?:es)? straight from your browser to (?:our|the) payment/i, why: 'the browser posts to this application, not to the provider' },
+  ];
+
+  const hits = [];
+  for (const page of PAGES) {
+    let text = '';
+    try {
+      const res = await fetch(`${BASE}${page}`);
+      text = (await res.text()).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    } catch {
+      continue;
+    }
+    for (const rule of FORBIDDEN) {
+      const m = text.match(rule.pattern);
+      if (m) hits.push(`${page}: "${m[0]}" — ${rule.why}`);
+    }
+  }
+
+  if (hits.length) {
+    problems += hits.length;
+    console.log(`  \u001b[31mFAIL\u001b[0m  ${hits.length} untrue card-data claim(s):`);
+    for (const h of hits) console.log(`          ${h}`);
+  } else {
+    console.log(`  \u001b[32mPASS\u001b[0m  no page claims card data bypasses this application`);
+  }
+}
+
 /* ------------------------------------------------- no unsendable promises */
 /*
  * The shop must not promise an email it cannot send.
